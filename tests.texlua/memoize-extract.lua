@@ -48,8 +48,10 @@ do
 	---@param pages [integer]
 	---@return integer|nil, string
 	extract_pages = function(src_pdf, out_dir, pages)
-		if kpathsea:out_name_ok(out_dir) and not lfs.isdir(out_dir) then
-			assert(lfs.mkdir(out_dir))
+		if kpathsea:out_name_ok(out_dir) then
+			if not lfs.isdir(out_dir) then
+				assert(lfs.mkdir(out_dir))
+			end
 		else
 			error("Writing to " .. out_dir .. " not permitted.")
 		end
@@ -136,7 +138,7 @@ pdfe       = nil
 ----------------------------------
 
 -- setup kpathsea
-kpathsea = kpse.new("memoize-extract.lua")
+kpathsea = kpse.new("kpsewhich")
 
 -- collect data from file
 local pages = {}
