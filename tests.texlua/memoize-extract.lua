@@ -103,7 +103,8 @@ do
 		local succ = {}
 		-- collect which pages failed the dimension check
 		local failed = {}
-		for p, dimensions in pairs(page_dimensions) do
+		for _, i in ipairs(page_dimensions) do
+			local p = i.page
 			local page = pdfe.getpage(pdf, p)
 			if not page then
 				print("warning page does not exist -> skipped")
