@@ -7,8 +7,7 @@ l3sys-query,\
 makeindex,\
 memoize-extract.pl,\
 memoize-extract.py,\
+./memoize-extract.lua,\
 repstopdf,\
 r-mpost,\
-texosquery-jre8,\
-rungs,\
-% added rungs to the list
+texosquery-jre8
