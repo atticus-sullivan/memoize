@@ -37,10 +37,10 @@ function kpathsea:record_output_file(name) end
 ---@return string
 function kpse.find_file(filename) end
 
----@overload fun(filename:string, ftype:string)
----@overload fun(filename:string, mustexist:boolean)
----@overload fun(filename:string, ftype:string, mustexist:boolean)
----@overload fun(filename:string, ftype:string, dpi:number)
+---@overload fun(kpathsea:kpathsea, filename:string, ftype:string)
+---@overload fun(kpathsea:kpathsea, filename:string, mustexist:boolean)
+---@overload fun(kpathsea:kpathsea, filename:string, ftype:string, mustexist:boolean)
+---@overload fun(kpathsea:kpathsea, filename:string, ftype:string, dpi:number)
 ---@param filename string
 ---@return string
 function kpathsea:find_file(filename) end
@@ -59,7 +59,7 @@ function kpathsea:lookup(filename, options) end
 ---@param base_dpi number
 ---@param mfmode string
 function kpse.init_prog(prefix, base_dpi, mfmode) end
----@overload fun(prefix:string, base_dpi:number, mfmode:string, fallback:string)
+---@overload fun(kpathsea:kpathsea, prefix:string, base_dpi:number, mfmode:string, fallback:string)
 ---@param prefix string
 ---@param base_dpi number
 ---@param mfmode string
