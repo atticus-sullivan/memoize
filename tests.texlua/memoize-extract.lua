@@ -32,6 +32,9 @@ local VERSION = '2025/01/17 v1.4.1' -- TODO(release)
 
 
 --TODO various error()/assert() calls now -- make functions adhere to proper error handling
+-- only needed because the logfile needs to be cleaned up
+-- -> maybe write my own error+assert which does logging + cleanup + exit
+
 
 ---@param bp number
 ---@return number
@@ -65,7 +68,7 @@ do
 	---@param name string
 	io_open_w = function(name)
 		if kpathsea:in_name_ok(name) then
-			return io.open(name, "w")
+			return io_open(name, "w")
 		end
 	end
 end
@@ -214,17 +217,20 @@ do
 end
 
 -- restrict the complete rest of the script by undefining security relevant libraries
-io     = {}
-fio    = {}
-os     = {}
-lfs    = {}
-pdfe   = {}
-socket = {}
-sio    = {}
-texio  = {}
-tex    = {}
-ffi    = {}
--- TODO is this missing something for further restricting?
+-- this defines an allow-list what functions of these libraries still should be accessible
+do
+	io     = nil
+	fio    = nil
+	os     = {exit=os.exit}
+	lfs    = {isfile=lfs.isfile}
+	pdfe   = nil
+	socket = nil
+	sio    = nil
+	texio  = nil
+	tex    = nil
+	ffi    = nil
+	-- TODO is this missing something for further restricting?
+end
 
 ----------------------------------
 -- restricted area startes here --
@@ -233,9 +239,106 @@ ffi    = {}
 -- setup kpathsea
 kpathsea = kpse.new("kpsewhich")
 
--- TODO functions for logging
-local log = nil -- file to which should be logged (later)
+local logging = {
+	file      = nil,
+	header    = "memoize-extract.lua: ",
+	indent    = "",
+	texindent = "",
+}
+do
+	local package_name = "memoize (texlua-based extraction)"
+	local ERROR   = {
+		latex     = function(a) return ("\\PackageError{%s}{%s}{%s}"):format(a.package_name or "", a.short or "", a.long or "") end,
+		plain     = function(a) return ("\\errhelp{%s}\\errmessage{%s: %s}"):format(a.long or "", a.package_name or "", a.short or "") end,
+		context   = function(a) return ("\\errhelp{%s}\\errmessage{%s: %s}"):format(a.long or "", a.package_name or "", a.short or "") end,
+		None      = function(a) return ("%s%s.\n%s"):format(a.header or "", a.short or "", a.long or "") end,
+	}
 
+	local WARNING = {
+		latex     = function(a) return ("\\PackageWarning{%s}{%s%s}"):format(a.package_name or "", a.texindent or "", a.text or "") end,
+		plain     = function(a) return ("\\message{%s: %s%s}"):format(a.package_name or "", a.texindent or "", a.text or "") end,
+		context   = function(a) return ("\\message{%s: %s%s}"):format(a.package_name or "", a.texindent or "", a.text or "") end,
+		None      = function(a) return ("%s%s%s."):format(a.header or "", a.indent or "", a.text or "") end,
+	}
+
+	local INFO    = {
+		latex     = function(a) return ("\\PackageInfo{%s}{%s%s}"):format(a.package_name or "", a.texindent or "", a.text or "") end,
+		plain     = function(a) return ("\\message{%s: %s%s}"):format(a.package_name or "", a.texindent or "", a.text or "") end,
+		context   = function(a) return ("\\message{%s: %s%s}"):format(a.package_name or "", a.texindent or "", a.text or "") end,
+		None      = function(a) return ("%s%s%s."):format(a.header or "", a.indent or "", a.text or "") end,
+	}
+
+	---Marks the log as complete
+	function logging:close()
+		if self.file then
+			self.file:write("\\endinput")
+			self.file:close()
+
+			-- avoid working with the closed file at all cost
+			self.file = nil
+		end
+	end
+
+	---@param short string
+	---@param long string
+	---@param quiet boolean
+	---@param format string
+	function logging:error(short, long, quiet, format)
+		format = format or "None"
+		if not quiet then
+			print(ERROR.None{short=short, long=long, header=self.header})
+		end
+		if self.file then
+			short = short:gsub("\\", "\\string\\")
+			long  = long:gsub("\\", "\\string\\")
+			self.file:write(ERROR[format]{short=short, long=long, package_name=package_name})
+		end
+	end
+
+	---@param text string
+	---@param quiet boolean
+	---@param format string
+	function logging:warn(text, quiet, format)
+		format = format or "None"
+		if not quiet then
+			print(WARNING.None{text=text, header=self.header, indent=self.indent})
+		end
+		if self.file then
+			text = text:gsub("\\", "\\")
+			self.file:write(WARNING[format]{text=text, texindent=self.texindent, package_name=self.package_name})
+		end
+	end
+
+	---@param text string
+	---@param quiet boolean
+	---@param format string
+	function logging:info(text, quiet, format)
+		format = format or "None"
+		if not quiet then
+			print(INFO.None{text=text, header=self.header, indent=self.indent})
+		end
+		if self.file then
+			text = text:gsub("\\", "\\")
+			self.file:write(INFO[format]{text=text, texindent=self.texindent, package_name=self.package_name})
+		end
+	end
+end
+
+local exit = {
+	error = function() os.exit(11) end,
+	warn  = function() os.exit(10) end,
+	succ  = function() os.exit(0) end,
+}
+
+--- Parses the extern_path
+-- in python this is a simple regex, but lua patterns cannot do the same things,
+-- so we need multiple ones
+---@param path string
+---@return string|nil dir_prefix
+---@return string|nil name_prefix
+---@return string|nil code_md5sum
+---@return string|nil context_md5sum
+---@return string|nil suffix
 local function parse_extern_path(path)
 	-- Pattern for the directory prefix and name prefix
 	local dir_prefix, name_prefix, remaining = path:match("^(.-)([^/]*)(.+)$")
@@ -270,10 +373,10 @@ local function parse_args(as, defaults)
 
 		if a == "h" then
 			print("help") -- TODO write the help output
-			os.exit(0)
+			exit.succ()
 		elseif a == "V" or a == "version" then
 			print(("memoize-extract.py of Memoize %s"):format(VERSION))
-			os.exit(0)
+			exit.succ()
 
 		elseif a == "P" or a == "pdf" then
 			args.pdf = as[i+1]
@@ -311,6 +414,10 @@ local function parse_args(as, defaults)
 	return args
 end
 
+-----------------------------------------------
+-- parsing + validating + deriving arguments --
+-----------------------------------------------
+
 local defaults = {
 	pdf = nil,
 	prune = false,
@@ -332,7 +439,7 @@ end
 -- --mkdir -> just create a directory named |mmz|
 if args.mkdir then
 	mkdir(args.mmz)
-	os.exit(0)
+	exit.succ()
 end
 
 -- Normalize the |mmz| argument into a |.mmz| filename
@@ -344,15 +451,18 @@ assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred
 
 if args.format then
 	local log_file = kpathsea:find_file(args.mmz..".log")
-	-- info("Logging to", log_file) -- TODO
-	log = assert(io_open_w(log_file))
+	logging:info("Logging to "..log_file, args.quiet, args.format)
+	logging.file = assert(io_open_w(log_file))
 end
 
 local mmz = kpathsea:find_file(args.mmz, true)
 
 local dirs_to_make = {}
 
--- collect data from file
+----------------------------
+-- collect data from file --
+----------------------------
+
 local pages = {}
 
 do
@@ -366,6 +476,9 @@ do
 			-- TODO unquote extern_path
 
 			local dir_prefix, name_prefix, code_md5sum, context_md5sum, suffix = parse_extern_path(extern_path)
+			if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum or not suffix then
+				logging:warn("Cannot parse line "..line, args.quiet, args.format)
+			end
 
 			local extern_file_out = kpathsea:find_file(extern_path)
 
@@ -374,8 +487,11 @@ do
 			-- c_memo  = kpathsea:find_file(extern_path.with_name(name_prefix..code_md5sum..".memo"))
 			-- cc_memo = kpathsea:find_fil(extern_path.with_name(name_prefix..code_md5sum.."-"..context_md5sum..".memo"))
 			if not args.force and not c_memo and not cc_memo then
-				-- warning()
-				os.exit(-1) -- raise NotExtracted in python
+				logging:warn(([[I refuse to extract page %d into extern 
+'%s', because the associated c-memo 
+'%s' and/or cc-memo '%s' 
+does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, args.format)
+				-- raises NotExtracted in python
 			end
 
 			table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix})
@@ -394,22 +510,31 @@ do
 				dirs_to_make[dir_prefix] = function() mkdir(dir_prefix) end
 				current_prefix = dir_prefix
 			else
-				-- warning("Cannot parse line", line)
+				logging:warn("Cannot parse line "..line, args.quiet, args.format)
 			end
 			goto continue
 		end
 
-		print(line)
+		print(line) -- TODO
 		::continue::
 	end
 end
 
 -- check the dimensions
-local succ, _ = check_dimensions(args.pdf, pages, 0.01, args.force)
+local succ, failed = check_dimensions(args.pdf, pages, 0.01, args.force)
 assert(#succ == #pages, "not all pages match the provided dimensions")
 local req_pages = succ
 
--- until here nothing was changed in the filesystem (except if --mkdir was passed)
+for _, p in ipairs(failed) do
+	logging:warn(([[I refuse to extract page %d from '%d' 
+because its size is not what I expected]]):format(p, args.pdf), args.quiet, args.format)
+end
+
+-------------------------------------------------------------------------
+--          until here nothing was changed in the filesystem           --
+-- (except if --mkdir was passed, in which case we immediately exited) --
+-- (also the logfile was opened previously)                            --
+-------------------------------------------------------------------------
 
 -- extract the requested pages
 -- Note: "mmz/0.pdf" corresponds not to the first page, but to the first page requested in req_pages
@@ -419,10 +544,24 @@ local _, _, cleanup, page_pat = assert(extract_pages(args.pdf, "mmz", req_pages)
 
 -- postprocess extracted pages -> rename/move them
 for p, page in ipairs(pages) do
+	-- make directory if necessary
+	if dirs_to_make[page.prefix] then
+		dirs_to_make[page.prefix]()
+		dirs_to_make[page.prefix] = nil
+	end
+
 	local extract = page_pat:format(p)
-	mv(extract, page.fn)
-	-- info("Page ", page.page, " --> ", page.fn)
+	if lfs.isfile(extract) then
+		mv(extract, page.fn)
+	else
+		-- make sure to skip non-existant files
+		logging:warn(("file '%s' was not found -> will still be missing in the next compilation step"):format(extract), args.quiet, args.format)
+	end
+	logging:info(("Page %d --> %d"):format(page.page, page.fn), args.quiet, args.format)
 end
 
 -- if for some reason files generated by ghostscript were not used, remove them now
 cleanup()
+
+logging:close()
+exit.succ()
