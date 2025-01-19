@@ -547,52 +547,57 @@ if STAGE == "production" then
 		local current_prefix = nil
 		for line in io_lines(mmz) do
 			-- match against NewExtern first as this is the most common case
-			local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
-			if extern_path and page_n and w and h then
-				-- Found \mmzNewExtern -> mark the page for extraction later
-				extern_path = unquote(extern_path)
-				local dir_prefix, name_prefix, code_md5sum, context_md5sum, suffix = parse_extern_path(extern_path)
-				if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum or not suffix then
-					logging:warn("Cannot parse line "..line, args.quiet, args.format)
-				end
+			do
+				local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
+				if extern_path and page_n and w and h then
+					-- Found \mmzNewExtern -> mark the page for extraction later
+					extern_path = unquote(extern_path)
+					local dir_prefix, name_prefix, code_md5sum, context_md5sum = parse_extern_path(extern_path)
+					if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum then
+						logging:warn("Cannot parse line "..line, args.quiet, args.format)
+					end
 
-				local extern_file_out = kpathsea:find_file(extern_path)
+					local extern_file_out = kpathsea:find_file(extern_path)
 
-				-- check whether c-memo and cc-memo exist (in any input directory)
-				-- TODO pathlib
-				-- c_memo  = kpathsea:find_file(extern_path.with_name(name_prefix..code_md5sum..".memo"))
-				-- cc_memo = kpathsea:find_fil(extern_path.with_name(name_prefix..code_md5sum.."-"..context_md5sum..".memo"))
-				if not args.force and not c_memo and not cc_memo then
-					logging:warn(([[I refuse to extract page %d into extern 
-	'%s', because the associated c-memo 
-	'%s' and/or cc-memo '%s' 
-	does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, args.format)
-					-- raises NotExtracted in python
-				end
+					-- check whether c-memo and cc-memo exist (in any input directory)
+					local c_memo  = kpathsea:find_file(pathlib.with_name(extern_path, name_prefix..code_md5sum..".memo"))
+					local cc_memo = kpathsea:find_file(pathlib.with_name(extern_path, name_prefix..code_md5sum.."-"..context_md5sum..".memo"))
 
-				if not args.keep then
-					line = "%"..line
+					if not args.force and not c_memo and not cc_memo then
+						logging:warn(([[I refuse to extract page %d into extern 
+'%s', because the associated c-memo 
+'%s' and/or cc-memo '%s' 
+does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, args.format)
+						-- raises NotExtracted in python
+					end
+
+					if not args.keep then
+						line = "%"..line
+					end
+
+					assert(current_prefix, "no prefix was parsed before this extern")
+					print(extern_file_out, extern_path)
+					table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix})
+					goto continue
 				end
-				assert(current_prefix, "no prefix was parsed before this extern")
-				table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix})
-				goto continue
 			end
 
-			local m_p = line:match("\\mmzPrefix *{(.-)}")
-			if m_p then
-				-- Found \mmzPrefix -> store what extern directory to create later when it's needed
-				m_p = unquote(m_p)
-				-- TODO is the '.' optional? (-> need a second pattern)
-				local name_prefix, dir_prefix = m_p:match("^(.*)%.(.*)$")
-				if name_prefix and dir_prefix then
-					dirs_to_make[dir_prefix] = function() mkdir(dir_prefix) end
-					current_prefix = dir_prefix
-					-- save the first prefix that occurs
-					gs_prefix = gs_prefix or current_prefix
-				else
-					logging:warn("Cannot parse line "..line, args.quiet, args.format)
+			do
+				local m_p = line:match("\\mmzPrefix *{(.-)}")
+				if m_p then
+					-- Found \mmzPrefix -> store what extern directory to create later when it's needed
+					m_p = unquote(m_p)
+					local dir_prefix, name_prefix = split_prefix(m_p)
+					if name_prefix and dir_prefix then
+						dirs_to_make[dir_prefix] = function() if dir_prefix ~= "" then mkdir(dir_prefix) end end
+						current_prefix = dir_prefix
+						-- save the first prefix that occurs
+						gs_prefix = gs_prefix or current_prefix
+					else
+						logging:warn("Cannot parse line "..line, args.quiet, args.format)
+					end
+					goto continue
 				end
-				goto continue
 			end
 			-- nothing matched
 
@@ -630,7 +635,7 @@ if STAGE == "production" then
 
 	for _, p in ipairs(failed) do
 		logging:warn(([[I refuse to extract page %d from '%d' 
-	because its size is not what I expected]]):format(p, args.pdf), args.quiet, args.format)
+because its size is not what I expected]]):format(p, args.pdf), args.quiet, args.format)
 	end
 
 	-------------------------------------------------------------------------
