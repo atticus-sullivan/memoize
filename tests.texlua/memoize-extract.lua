@@ -31,7 +31,8 @@ local VERSION = '2025/01/17 v1.4.1' -- TODO(release)
 --  see https://texdoc.org/serve/LuaTeX/0
 
 -- global variable STAGE is used as indicator whether this is loaded as library for testing or executed directly
-STAGE = STAGE or "production"
+-- variable is "testing" if exactly this string and "production" in all other cases
+STAGE = STAGE == "testing" and "testing" or "production"
 
 
 --TODO various error()/assert() calls now -- make functions adhere to proper error handling
