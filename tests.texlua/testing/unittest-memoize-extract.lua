@@ -20,7 +20,7 @@
 
 local lfs = require 'lfs'
 
-local lester = require"lester"
+local lester = require"lester.lester"
 local describe = lester.describe
 local before   = lester.before
 local after    = lester.after
