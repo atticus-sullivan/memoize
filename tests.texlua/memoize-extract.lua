@@ -431,167 +431,167 @@ end
 -----------------------------------------------
 
 if STAGE == "production" then
-local defaults = {
-	pdf = nil,
-	prune = false,
-	keep = false,
-	format = nil,
-	force = false,
-	quiet = false,
-	mkdir = false,
-	-- version,
-	mmz = nil,
-}
+	local defaults = {
+		pdf = nil,
+		prune = false,
+		keep = false,
+		format = nil,
+		force = false,
+		quiet = false,
+		mkdir = false,
+		-- version,
+		mmz = nil,
+	}
 
-local args = parse_args(arg, defaults)
+	local args = parse_args(arg, defaults)
 
-if not args.mmz then
-	error("mmz needs to be provided")
-end
+	if not args.mmz then
+		error("mmz needs to be provided")
+	end
 
--- --mkdir -> just create a directory named |mmz|
-if args.mkdir then
-	mkdir(args.mmz)
-	exit.succ()
-end
+	-- --mkdir -> just create a directory named |mmz|
+	if args.mkdir then
+		mkdir(args.mmz)
+		exit.succ()
+	end
 
--- Normalize the |mmz| argument into a |.mmz| filename
--- TODO how can we do this quickly in lua
-assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
+	-- Normalize the |mmz| argument into a |.mmz| filename
+	-- TODO how can we do this quickly in lua
+	assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
 
--- infer the path to the pdf file
-assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
+	-- infer the path to the pdf file
+	assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
 
-if args.format then
-	local log_file = kpathsea:find_file(args.mmz..".log")
-	logging:info("Logging to "..log_file, args.quiet, args.format)
-	logging.file = assert(io_open_w(log_file))
-end
+	if args.format then
+		local log_file = kpathsea:find_file(args.mmz..".log")
+		logging:info("Logging to "..log_file, args.quiet, args.format)
+		logging.file = assert(io_open_w(log_file))
+	end
 
-local mmz = kpathsea:find_file(args.mmz, true)
+	local mmz = kpathsea:find_file(args.mmz, true)
 
-local dirs_to_make = {}
+	local dirs_to_make = {}
 
-----------------------------
--- collect data from file --
-----------------------------
+	----------------------------
+	-- collect data from file --
+	----------------------------
 
-local pages   = {}
-local new_mmz = {}
+	local pages   = {}
+	local new_mmz = {}
 
-do
-	local current_prefix = nil
-	for line in io_lines(mmz) do
-		-- match against NewExtern first as this is the most common case
-		local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
-		if extern_path and page_n and w and h then
-			-- Found \mmzNewExtern -> mark the page for extraction later
-			extern_path = unquote(extern_path)
-			local dir_prefix, name_prefix, code_md5sum, context_md5sum, suffix = parse_extern_path(extern_path)
-			if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum or not suffix then
-				logging:warn("Cannot parse line "..line, args.quiet, args.format)
+	do
+		local current_prefix = nil
+		for line in io_lines(mmz) do
+			-- match against NewExtern first as this is the most common case
+			local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
+			if extern_path and page_n and w and h then
+				-- Found \mmzNewExtern -> mark the page for extraction later
+				extern_path = unquote(extern_path)
+				local dir_prefix, name_prefix, code_md5sum, context_md5sum, suffix = parse_extern_path(extern_path)
+				if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum or not suffix then
+					logging:warn("Cannot parse line "..line, args.quiet, args.format)
+				end
+
+				local extern_file_out = kpathsea:find_file(extern_path)
+
+				-- check whether c-memo and cc-memo exist (in any input directory)
+				-- TODO pathlib
+				-- c_memo  = kpathsea:find_file(extern_path.with_name(name_prefix..code_md5sum..".memo"))
+				-- cc_memo = kpathsea:find_fil(extern_path.with_name(name_prefix..code_md5sum.."-"..context_md5sum..".memo"))
+				if not args.force and not c_memo and not cc_memo then
+					logging:warn(([[I refuse to extract page %d into extern 
+	'%s', because the associated c-memo 
+	'%s' and/or cc-memo '%s' 
+	does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, args.format)
+					-- raises NotExtracted in python
+				end
+
+				if not args.keep then
+					line = "%"..line
+				end
+				table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix})
+				goto continue
 			end
 
-			local extern_file_out = kpathsea:find_file(extern_path)
-
-			-- check whether c-memo and cc-memo exist (in any input directory)
-			-- TODO pathlib
-			-- c_memo  = kpathsea:find_file(extern_path.with_name(name_prefix..code_md5sum..".memo"))
-			-- cc_memo = kpathsea:find_fil(extern_path.with_name(name_prefix..code_md5sum.."-"..context_md5sum..".memo"))
-			if not args.force and not c_memo and not cc_memo then
-				logging:warn(([[I refuse to extract page %d into extern 
-'%s', because the associated c-memo 
-'%s' and/or cc-memo '%s' 
-does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, args.format)
-				-- raises NotExtracted in python
+			local m_p = line:match("\\mmzPrefix *{(.-)}")
+			if m_p then
+				-- Found \mmzPrefix -> store what extern directory to create later when it's needed
+				m_p = unquote(m_p)
+				-- TODO is the '.' optional? (-> need a second pattern)
+				local name_prefix, dir_prefix = m_p:match("^(.*)%.(.*)$")
+				if name_prefix and dir_prefix then
+					dirs_to_make[dir_prefix] = function() mkdir(dir_prefix) end
+					current_prefix = dir_prefix
+				else
+					logging:warn("Cannot parse line "..line, args.quiet, args.format)
+				end
+				goto continue
 			end
+			-- nothing matched
 
+			::continue::
 			if not args.keep then
-				line = "%"..line
+				table.insert(new_mmz, line)
 			end
-			table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix})
-			goto continue
-		end
-
-		local m_p = line:match("\\mmzPrefix *{(.-)}")
-		if m_p then
-			-- Found \mmzPrefix -> store what extern directory to create later when it's needed
-			m_p = unquote(m_p)
-			-- TODO is the '.' optional? (-> need a second pattern)
-			local name_prefix, dir_prefix = m_p:match("^(.*)%.(.*)$")
-			if name_prefix and dir_prefix then
-				dirs_to_make[dir_prefix] = function() mkdir(dir_prefix) end
-				current_prefix = dir_prefix
-			else
-				logging:warn("Cannot parse line "..line, args.quiet, args.format)
-			end
-			goto continue
-		end
-		-- nothing matched
-
-		::continue::
-		if not args.keep then
-			table.insert(new_mmz, line)
 		end
 	end
-end
 
--- write new |.mmz| file with |\mmzNewExtern| lines commented out.
-if not args.keep then
-	local file = io_open_w(mmz)
-	local first = true
-	for line in ipairs(new_mmz) do
-		file:write(line, not first and "\n" or "")
-		first = false
-	end
-	file:close()
-end
-
--- check the dimensions
-local succ, failed = check_dimensions(args.pdf, pages, 0.01, args.force)
-assert(#succ == #pages, "not all pages match the provided dimensions")
-local req_pages = succ
-
-for _, p in ipairs(failed) do
-	logging:warn(([[I refuse to extract page %d from '%d' 
-because its size is not what I expected]]):format(p, args.pdf), args.quiet, args.format)
-end
-
--------------------------------------------------------------------------
---          until here nothing was changed in the filesystem           --
--- (except if --mkdir was passed, in which case we immediately exited) --
--- (also the logfile was opened previously)                            --
--------------------------------------------------------------------------
-
--- extract the requested pages
--- Note: "mmz/0.pdf" corresponds not to the first page, but to the first page requested in req_pages
-
--- TODO where to put the files generated by ghostscript? Should be an extra directory, but where?
-local _, _, cleanup, page_pat = assert(extract_pages(args.pdf, "mmz", req_pages))
-
--- postprocess extracted pages -> rename/move them
-for p, page in ipairs(pages) do
-	-- make directory if necessary
-	if dirs_to_make[page.prefix] then
-		dirs_to_make[page.prefix]()
-		dirs_to_make[page.prefix] = nil
+	-- write new |.mmz| file with |\mmzNewExtern| lines commented out.
+	if not args.keep then
+		local file = io_open_w(mmz)
+		local first = true
+		for line in ipairs(new_mmz) do
+			file:write(line, not first and "\n" or "")
+			first = false
+		end
+		file:close()
 	end
 
-	local extract = page_pat:format(p)
-	if lfs.isfile(extract) then
-		mv(extract, page.fn)
-	else
-		-- make sure to skip non-existant files
-		logging:warn(("file '%s' was not found -> will still be missing in the next compilation step"):format(extract), args.quiet, args.format)
+	-- check the dimensions
+	local succ, failed = check_dimensions(args.pdf, pages, 0.01, args.force)
+	assert(#succ == #pages, "not all pages match the provided dimensions")
+	local req_pages = succ
+
+	for _, p in ipairs(failed) do
+		logging:warn(([[I refuse to extract page %d from '%d' 
+	because its size is not what I expected]]):format(p, args.pdf), args.quiet, args.format)
 	end
-	logging:info(("Page %d --> %d"):format(page.page, page.fn), args.quiet, args.format)
-end
 
--- if for some reason files generated by ghostscript were not used, remove them now
-cleanup()
+	-------------------------------------------------------------------------
+	--          until here nothing was changed in the filesystem           --
+	-- (except if --mkdir was passed, in which case we immediately exited) --
+	-- (also the logfile was opened previously)                            --
+	-------------------------------------------------------------------------
 
-logging:close()
-exit.succ()
+	-- extract the requested pages
+	-- Note: "mmz/0.pdf" corresponds not to the first page, but to the first page requested in req_pages
+
+	-- TODO where to put the files generated by ghostscript? Should be an extra directory, but where?
+	local _, _, cleanup, page_pat = assert(extract_pages(args.pdf, "mmz", req_pages))
+
+	-- postprocess extracted pages -> rename/move them
+	for p, page in ipairs(pages) do
+		-- make directory if necessary
+		if dirs_to_make[page.prefix] then
+			dirs_to_make[page.prefix]()
+			dirs_to_make[page.prefix] = nil
+		end
+
+		local extract = page_pat:format(p)
+		if lfs.isfile(extract) then
+			mv(extract, page.fn)
+		else
+			-- make sure to skip non-existant files
+			logging:warn(("file '%s' was not found -> will still be missing in the next compilation step"):format(extract), args.quiet, args.format)
+		end
+		logging:info(("Page %d --> %d"):format(page.page, page.fn), args.quiet, args.format)
+	end
+
+	-- if for some reason files generated by ghostscript were not used, remove them now
+	cleanup()
+
+	logging:close()
+	exit.succ()
 else
 	-- expose functions for tests
 	return {
