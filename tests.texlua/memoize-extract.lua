@@ -200,8 +200,8 @@ do
 				local mediabox = pdfe.getbox(page, "MediaBox")
 				local w = bp2pt(mediabox[3] - mediabox[1])
 				local h = bp2pt(mediabox[4] - mediabox[2])
-				if math.abs(w - i.w) > tolerance or math.abs(h - i.h) and not force then
-					print("Sizes do not match -> skip that page")
+				if math.abs(w - i.width) > tolerance or math.abs(h - i.height) > tolerance and not force then
+					print("Sizes do not match -> skip that page", w, "vs", i.width "|", h, "vs", i.height)
 				else
 					table.insert(succ, p)
 				end
