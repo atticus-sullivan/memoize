@@ -485,17 +485,22 @@ if STAGE == "production" then
 	end
 
 	-- Normalize the |mmz| argument into a |.mmz| filename
-	-- TODO how can we do this quickly in lua
+	if pathlib.suffix(args.mmz) == "tex" then
+		args.mmz = pathlib.with_suffix(args.mmz, "mmz")
+	elseif pathlib.suffix(args.mmz) ~= "mmz" then
+		args.mmz = pathlib.with_name(args.mmz, pathlib.name(args.mmz)..".mmz")
+	end
 	assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
-
-	-- infer the path to the pdf file
-	assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
 
 	if args.format then
 		local log_file = kpathsea:find_file(args.mmz..".log")
 		logging:info("Logging to "..log_file, args.quiet, args.format)
 		logging.file = assert(io_open_w(log_file))
 	end
+
+	-- infer the path to the pdf file
+	args.pdf = kpathsea:find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
+	assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
 
 	local mmz = kpathsea:find_file(args.mmz, true)
 
