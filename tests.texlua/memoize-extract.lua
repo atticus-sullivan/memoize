@@ -57,8 +57,13 @@ do
 
 	---@param name string
 	mkdir = function(name)
-		if kpathsea:out_name_ok(name) then
-			assert(lfs.mkdir(name))
+		if not lfs.isdir(name) then
+			if kpathsea:out_name_ok(name) then
+				assert(name and name ~= "", "name: " .. name)
+				assert(lfs.mkdir(name))
+			else
+				-- TODO
+			end
 		end
 	end
 end
