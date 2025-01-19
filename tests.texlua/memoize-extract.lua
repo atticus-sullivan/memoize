@@ -239,6 +239,12 @@ end
 -- setup kpathsea
 kpathsea = kpse.new("kpsewhich")
 
+local exit = {
+	error = function() os.exit(11) end,
+	warn  = function() os.exit(10) end,
+	succ  = function() os.exit(0) end,
+}
+
 local logging = {
 	file      = nil,
 	header    = "memoize-extract.lua: ",
@@ -279,11 +285,17 @@ do
 		end
 	end
 
+	function logging:set_args(args)
+		self.error = function(self, short, long) return self:_error(short, long, args.quiet, args.format) end
+		self.info  = function(self, text) return self:_info(text, args.quiet, args.format) end
+		self.warn  = function(self, text) return self:_warn(text, args.quiet, args.format) end
+	end
+
 	---@param short string
 	---@param long string
 	---@param quiet boolean
 	---@param format string
-	function logging:error(short, long, quiet, format)
+	function logging:_error(short, long, quiet, format)
 		format = format or "None"
 		if not quiet then
 			print(ERROR.None{short=short, long=long, header=self.header})
@@ -293,12 +305,15 @@ do
 			long  = long:gsub("\\", "\\string\\")
 			self.file:write(ERROR[format]{short=short, long=long, package_name=package_name})
 		end
+		-- set the exitcode this way
+		exit.succ = exit.error
 	end
+	logging.error = logging._error
 
 	---@param text string
 	---@param quiet boolean
 	---@param format string
-	function logging:warn(text, quiet, format)
+	function logging:_warn(text, quiet, format)
 		format = format or "None"
 		if not quiet then
 			print(WARNING.None{text=text, header=self.header, indent=self.indent})
@@ -307,12 +322,15 @@ do
 			text = text:gsub("\\", "\\")
 			self.file:write(WARNING[format]{text=text, texindent=self.texindent, package_name=self.package_name})
 		end
+		-- set the exitcode this way
+		exit.succ = exit.warn
 	end
+	logging.warn = logging._warn
 
 	---@param text string
 	---@param quiet boolean
 	---@param format string
-	function logging:info(text, quiet, format)
+	function logging:_info(text, quiet, format)
 		format = format or "None"
 		if not quiet then
 			print(INFO.None{text=text, header=self.header, indent=self.indent})
@@ -322,13 +340,24 @@ do
 			self.file:write(INFO[format]{text=text, texindent=self.texindent, package_name=self.package_name})
 		end
 	end
+	logging.info = logging._info
 end
 
-local exit = {
-	error = function() os.exit(11) end,
-	warn  = function() os.exit(10) end,
-	succ  = function() os.exit(0) end,
-}
+-- redefine assert
+assert = function(cond, msg)
+	if not cond then
+		logging:error("", msg)
+		logging:close()
+		exit.error()
+	end
+end
+
+-- redefine error
+error = function(msg)
+	logging:error("", msg)
+	logging:close()
+	exit.error()
+end
 
 ---comment
 ---@param fn string quoted filename
@@ -500,6 +529,7 @@ if STAGE == "production" then
 	}
 
 	local args = parse_args(arg, defaults)
+	logging:set_args(args)
 
 	if not args.mmz then
 		error("mmz needs to be provided")
@@ -522,7 +552,7 @@ if STAGE == "production" then
 
 	if args.format then
 		local log_file = kpathsea:find_file(args.mmz..".log")
-		logging:info("Logging to "..log_file, args.quiet, args.format)
+		logging:info("Logging to "..log_file)
 		logging.file = assert(io_open_w(log_file))
 	end
 
@@ -554,7 +584,7 @@ if STAGE == "production" then
 					extern_path = unquote(extern_path)
 					local dir_prefix, name_prefix, code_md5sum, context_md5sum = parse_extern_path(extern_path)
 					if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum then
-						logging:warn("Cannot parse line "..line, args.quiet, args.format)
+						logging:warn("Cannot parse line "..line)
 					end
 
 					local extern_file_out = kpathsea:find_file(extern_path)
@@ -567,7 +597,7 @@ if STAGE == "production" then
 						logging:warn(([[I refuse to extract page %d into extern 
 '%s', because the associated c-memo 
 '%s' and/or cc-memo '%s' 
-does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, args.format)
+does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo))
 						-- raises NotExtracted in python
 					end
 
@@ -594,7 +624,7 @@ does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, ar
 						-- save the first prefix that occurs
 						gs_prefix = gs_prefix or current_prefix
 					else
-						logging:warn("Cannot parse line "..line, args.quiet, args.format)
+						logging:warn("Cannot parse line "..line)
 					end
 					goto continue
 				end
@@ -635,7 +665,7 @@ does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, ar
 
 	for _, p in ipairs(failed) do
 		logging:warn(([[I refuse to extract page %d from '%d' 
-because its size is not what I expected]]):format(p, args.pdf), args.quiet, args.format)
+because its size is not what I expected]]):format(p, args.pdf))
 	end
 
 	-------------------------------------------------------------------------
@@ -649,7 +679,13 @@ because its size is not what I expected]]):format(p, args.pdf), args.quiet, args
 
 	dirs_to_make[gs_prefix]()
 	dirs_to_make[gs_prefix] = nil
-	local _, _, cleanup, page_pat = assert(extract_pages(args.pdf, gs_prefix, req_pages))
+	local succ, err, cleanup, page_pat = extract_pages(args.pdf, gs_prefix, req_pages)
+	assert(succ, err)
+	print("pat", page_pat)
+	print("gs_prefix", gs_prefix)
+	for _, p in ipairs(req_pages) do
+		print("requested page: ", p)
+	end
 
 	-- postprocess extracted pages -> rename/move them
 	for p, page in ipairs(pages) do
@@ -664,9 +700,9 @@ because its size is not what I expected]]):format(p, args.pdf), args.quiet, args
 			mv(extract, page.fn)
 		else
 			-- make sure to skip non-existant files
-			logging:warn(("file '%s' was not found -> will still be missing in the next compilation step"):format(extract), args.quiet, args.format)
+			logging:warn(("file '%s' was not found -> will still be missing in the next compilation step"):format(extract))
 		end
-		logging:info(("Page %d --> %d"):format(page.page, page.fn), args.quiet, args.format)
+		logging:info(("Page %d --> %d"):format(page.page, page.fn))
 	end
 
 	-- if for some reason files generated by ghostscript were not used, remove them now
