@@ -30,6 +30,9 @@ local VERSION = '2025/01/17 v1.4.1' -- TODO(release)
 --  interface to pdf files: used to get information about a pdf file
 --  see https://texdoc.org/serve/LuaTeX/0
 
+-- global variable STAGE is used as indicator whether this is loaded as library for testing or executed directly
+STAGE = STAGE or "production"
+
 
 --TODO various error()/assert() calls now -- make functions adhere to proper error handling
 -- only needed because the logfile needs to be cleaned up
@@ -218,7 +221,7 @@ end
 
 -- restrict the complete rest of the script by undefining security relevant libraries
 -- this defines an allow-list what functions of these libraries still should be accessible
-do
+if STAGE == "production" then
 	io     = nil
 	fio    = nil
 	os     = {exit=os.exit}
@@ -418,6 +421,7 @@ end
 -- parsing + validating + deriving arguments --
 -----------------------------------------------
 
+if STAGE == "production" then
 local defaults = {
 	pdf = nil,
 	prune = false,
@@ -565,3 +569,9 @@ cleanup()
 
 logging:close()
 exit.succ()
+else
+	-- expose functions for tests
+	return {
+		parse_extern_path = parse_extern_path,
+	}
+end
