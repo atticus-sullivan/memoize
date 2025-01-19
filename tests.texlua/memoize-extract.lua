@@ -67,7 +67,7 @@ do
 
 	---@param name string
 	io_open_w = function(name)
-		if kpathsea:in_name_ok(name) then
+		if kpathsea:out_name_ok(name) then
 			return io_open(name, "w")
 		end
 	end
@@ -515,7 +515,7 @@ does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, ar
 			goto continue
 		end
 
-		print(line) -- TODO
+		print(line) -- TODO logging?
 		::continue::
 	end
 end
