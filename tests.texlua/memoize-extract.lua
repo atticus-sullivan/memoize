@@ -417,6 +417,44 @@ local function parse_args(as, defaults)
 	return args
 end
 
+-------------------------
+-- temporary pathutils --
+-- only works on unix  --
+-------------------------
+local pathlib = {}
+---@param path string
+---@return string name
+---@return string remainder
+function pathlib.name(path)
+	local r, name = path:match("^(.*)/([^/]+)/?$")
+	return name or path, r
+end
+---@param path string
+---@param name string
+---@return string
+function pathlib.with_name(path, name)
+	local _, r = pathlib.name(path)
+	if r then
+		return r.."/"..name
+	end
+	return name
+end
+---@param path string
+---@return string suffix
+---@return string remainder
+function pathlib.suffix(path)
+	local r, suffix = path:match("^(.*)%.([^./]*)$")
+	return suffix or "", r or path
+end
+---@param path string
+---@param suffix string
+---@return string
+function pathlib.with_suffix(path, suffix)
+	local _, r = pathlib.suffix(path)
+	return r.."."..suffix
+end
+
+
 -----------------------------------------------
 -- parsing + validating + deriving arguments --
 -----------------------------------------------
