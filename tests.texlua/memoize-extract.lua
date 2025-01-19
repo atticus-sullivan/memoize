@@ -338,6 +338,7 @@ local function unquote(fn)
 	return r
 end
 
+local md5pat = ("%x"):rep(32)
 --- Parses the extern_path
 -- in python this is a simple regex, but lua patterns cannot do the same things,
 -- so we need multiple ones
@@ -346,26 +347,47 @@ end
 ---@return string|nil name_prefix
 ---@return string|nil code_md5sum
 ---@return string|nil context_md5sum
----@return string|nil suffix
 local function parse_extern_path(path)
-	-- Pattern for the directory prefix and name prefix
-	local dir_prefix, name_prefix, remaining = path:match("^(.-)([^/]*)(.+)$")
+	-- first split into d_prefix, name_prefix and rest
+	local dir_prefix, name_prefix, code_md5sum, context_md5sum, remaining = path:match("^(.*/)(.-)("..md5pat..")%-("..md5pat..")(.-).pdf$")
+
+	if not remaining then
+		-- pattern did not match -> maybe the optional dir_prefix was not given
+		dir_prefix = ""
+		name_prefix, code_md5sum, context_md5sum, remaining = path:match("^(.-)("..md5pat..")%-("..md5pat..")(.-).pdf$")
+	end
 
 	if not remaining then
 		-- If the pattern didn't match, return nil
 		return nil
 	end
 
-	-- Pattern for extracting MD5 hashes and suffix
-	local code_md5sum, context_md5sum, suffix = remaining:match("^([0-9A-F]{32})%-([0-9A-F]{32})(%-[0-9]+)?.pdf$")
-
-	if not code_md5sum or not context_md5sum then
-		-- If the MD5 hash pattern didn't match, return nil
+	-- check if remaining fits the scheme
+	if remaining ~= "" and not remaining:find("^%-%d+$") then
 		return nil
 	end
 
 	-- Return the extracted components
-	return dir_prefix, name_prefix, code_md5sum, context_md5sum, suffix
+	return dir_prefix, name_prefix, code_md5sum, context_md5sum
+end
+
+---@param prefix string
+---@return string|nil dir_prefix
+---@return string|nil name_prefix
+local function split_prefix(prefix)
+	-- try with dir_prefix and name_prefix
+	local dir_prefix, name_prefix = prefix:match("^(.*/)(.-)$")
+	if not name_prefix then
+		-- pattern did not match -> maybe the optional dir_prefix was not given
+		dir_prefix = ""
+		name_prefix = prefix:match("^(.-)$")
+	end
+
+	if not name_prefix then
+		return nil
+	end
+
+	return dir_prefix, name_prefix
 end
 
 local function parse_args(as, defaults)
