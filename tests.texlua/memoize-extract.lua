@@ -518,6 +518,7 @@ if STAGE == "production" then
 		args.mmz = pathlib.with_name(args.mmz, pathlib.name(args.mmz)..".mmz")
 	end
 	assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
+	-- TODO check if file exists
 
 	if args.format then
 		local log_file = kpathsea:find_file(args.mmz..".log")
@@ -528,6 +529,7 @@ if STAGE == "production" then
 	-- infer the path to the pdf file
 	args.pdf = kpathsea:find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
 	assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
+	-- TODO check if file exists
 
 	local mmz = kpathsea:find_file(args.mmz, true)
 
@@ -614,7 +616,7 @@ if STAGE == "production" then
 	if not args.keep then
 		local file = io_open_w(mmz)
 		local first = true
-		for line in ipairs(new_mmz) do
+		for _, line in ipairs(new_mmz) do
 			file:write(line, not first and "\n" or "")
 			first = false
 		end
