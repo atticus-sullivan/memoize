@@ -334,6 +334,14 @@ local exit = {
 	succ  = function() os.exit(0) end,
 }
 
+---comment
+---@param fn string quoted filename
+---@return string
+local function unquote(fn)
+	local r = fn:gsub("\"(.-)\"", "%1")
+	return r
+end
+
 --- Parses the extern_path
 -- in python this is a simple regex, but lua patterns cannot do the same things,
 -- so we need multiple ones
@@ -477,9 +485,7 @@ do
 		local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
 		if extern_path and page_n and w and h then
 			-- Found \mmzNewExtern -> mark the page for extraction later
-
-			-- TODO unquote extern_path
-
+			extern_path = unquote(extern_path)
 			local dir_prefix, name_prefix, code_md5sum, context_md5sum, suffix = parse_extern_path(extern_path)
 			if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum or not suffix then
 				logging:warn("Cannot parse line "..line, args.quiet, args.format)
@@ -506,10 +512,8 @@ does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, ar
 		local m_p = line:match("\\mmzPrefix *{(.-)}")
 		if m_p then
 			-- Found \mmzPrefix -> store what extern directory to create later when it's needed
-
-			-- TODO unquote prefix?
-
-			-- is the '.' optional? (-> need a second pattern)
+			m_p = unquote(m_p)
+			-- TODO is the '.' optional? (-> need a second pattern)
 			local name_prefix, dir_prefix = m_p:match("^(.*)%.(.*)$")
 			if name_prefix and dir_prefix then
 				dirs_to_make[dir_prefix] = function() mkdir(dir_prefix) end
