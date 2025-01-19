@@ -476,7 +476,8 @@ local dirs_to_make = {}
 -- collect data from file --
 ----------------------------
 
-local pages = {}
+local pages   = {}
+local new_mmz = {}
 
 do
 	local current_prefix = nil
@@ -505,6 +506,9 @@ does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, ar
 				-- raises NotExtracted in python
 			end
 
+			if not args.keep then
+				line = "%"..line
+			end
 			table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix})
 			goto continue
 		end
@@ -523,10 +527,24 @@ does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo), args.quiet, ar
 			end
 			goto continue
 		end
+		-- nothing matched
 
-		print(line) -- TODO logging?
 		::continue::
+		if not args.keep then
+			table.insert(new_mmz, line)
+		end
 	end
+end
+
+-- write new |.mmz| file with |\mmzNewExtern| lines commented out.
+if not args.keep then
+	local file = io_open_w(mmz)
+	local first = true
+	for line in ipairs(new_mmz) do
+		file:write(line, not first and "\n" or "")
+		first = false
+	end
+	file:close()
 end
 
 -- check the dimensions
