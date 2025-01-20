@@ -20,6 +20,7 @@
 
 local VERSION = '2025/01/17 v1.4.1' -- TODO(release)
 
+
 -- libraries already available due to the use of texlua
 -- lfs:
 --  lua-filesystem: used for checking/creating/deleting files/directories
@@ -33,11 +34,6 @@ local VERSION = '2025/01/17 v1.4.1' -- TODO(release)
 -- global variable STAGE is used as indicator whether this is loaded as library for testing or executed directly
 -- variable is "testing" if exactly this string and "production" in all other cases
 STAGE = STAGE == "testing" and "testing" or "production"
-
-
---TODO various error()/assert() calls now -- make functions adhere to proper error handling
--- only needed because the logfile needs to be cleaned up
--- -> maybe write my own error+assert which does logging + cleanup + exit
 
 
 ---@param bp number
@@ -238,6 +234,11 @@ end
 
 -- setup kpathsea
 kpathsea = kpse.new("kpsewhich")
+
+-- TODO this probably needs to be extended or we find something luatex native
+local function find_out(fname)
+	return fname
+end
 
 local exit = {
 	error = function() os.exit(11) end,
@@ -551,7 +552,7 @@ if STAGE == "production" then
 	-- TODO check if file exists
 
 	if args.format then
-		local log_file = kpathsea:find_file(args.mmz..".log")
+		local log_file = find_out(args.mmz..".log")
 		logging:info("Logging to "..log_file)
 		logging.file = assert(io_open_w(log_file))
 	end
@@ -587,7 +588,7 @@ if STAGE == "production" then
 						logging:warn("Cannot parse line "..line)
 					end
 
-					local extern_file_out = kpathsea:find_file(extern_path)
+					local extern_file_out = find_out(extern_path)
 
 					-- check whether c-memo and cc-memo exist (in any input directory)
 					local c_memo  = kpathsea:find_file(pathlib.with_name(extern_path, name_prefix..code_md5sum..".memo"))
