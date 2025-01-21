@@ -181,7 +181,108 @@ describe("memoize-extract.lua", function()
 		end)
 	end)
 
-	describe("split_prefix", function()
+	describe("parse_args", function()
+		it("should parse valid arguments with defaults", function()
+			local defaults = {pdf = nil, format = "plain", quiet = false}
+			local args = extract.parse_args({"-P", "output.pdf", "-f", "latex", "mmz"}, defaults)
+			expect.equal(args, {
+				pdf    = "output.pdf",
+				format = "latex",
+				quiet  = false,
+				mmz    = "mmz",
+			})
+		end)
+
+		it("should raise an error for missing value after '-P'", function()
+			local defaults = {}
+			expect.fail(function()
+				extract.parse_args({"-P", "mmz"}, defaults)
+			end)
+		end)
+
+		it("should raise an error for invalid format", function()
+			local defaults = {}
+			expect.fail(function()
+				extract.parse_args({"-f", "invalidformat", "mmz"}, defaults)
+			end)
+		end)
+
+		it("should handle multiple flags correctly", function()
+			local defaults = {}
+			local args = extract.parse_args({"-p", "-k", "-q", "mmz"}, defaults)
+			expect.equal(args, {
+				quiet = true,
+				prune = true,
+				keep  = true,
+				mmz   = "mmz",
+			})
+		end)
+
+		it("should handle long argument names correctly", function()
+			local defaults = {}
+			local args = extract.parse_args({"--prune", "--quiet", "mmz"}, defaults)
+			expect.equal(args, {
+				quiet = true,
+				prune = true,
+				mmz   = "mmz",
+			})
+		end)
+
+		it("should assign the last argument to mmz", function()
+			local defaults = {}
+			local args = extract.parse_args({"-P", "output.pdf", "final.mmz"}, defaults)
+			expect.equal(args, {
+				pdf = "output.pdf",
+				mmz = "final.mmz",
+			})
+		end)
+
+		-- TODO should the argument parsing detect something like this? Or just take '-p' as mmz file
+		-- it("should fail if no mmz is given", function()
+		-- 	local defaults = {pdf = nil, format = "plain", quiet = false}
+		-- 	-- expect.fail(function()
+		-- 		extract.parse_args({"-P", "output.pdf", "-f", "latex", "-p"}, defaults)
+		-- 	-- end)
+		-- end)
+
+		-- TODO -h would end up as mmz file -> argument parsing needs to be adjusted
+		-- it("should exit successfully and print help for '-h'", function()
+		-- 	local defaults = {}
+		-- 	expect.fail(function()
+		-- 		extract.parse_args({"-h"}, defaults)
+		-- 	end)
+		-- end)
+
+		-- TODO -V would end up as mmz file -> argument parsing needs to be adjusted
+		-- it("should exit successfully and print version for '-V'", function()
+		-- 	local defaults = {}
+		-- 	expect.fail(function()
+		-- 		extract.parse_args({"-V"}, defaults)
+		-- 	end)
+		-- end)
+
+		it("should handle no flags and return defaults", function()
+			local defaults = {pdf = nil, prune = false}
+			local args = extract.parse_args({"mmz"}, defaults)
+			expect.equal(args, {
+				prune = false,
+				mmz   = "mmz",
+			})
+		end)
+
+		it("should fail with no arguments", function()
+			local defaults = {pdf = nil, prune = false}
+			expect.fail(function()
+				extract.parse_args({}, defaults)
+			end)
+		end)
+
+		it("should raise an error for an unrecognized argument", function()
+			local defaults = {}
+			expect.fail(function()
+				extract.parse_args({"-z", "mmz"}, defaults)
+			end)
+		end)
 	end)
 
 	-- describe("xyz", function()

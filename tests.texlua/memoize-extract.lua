@@ -761,6 +761,7 @@ else
 	-- expose functions for tests
 	return {
 		parse_extern_path = parse_extern_path,
-		split_prefix = split_prefix,
+		split_prefix      = split_prefix,
+		parse_args        = parse_args,
 	}
 end
