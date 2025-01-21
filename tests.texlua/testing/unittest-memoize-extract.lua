@@ -35,7 +35,6 @@ describe("memoize-extract.lua", function()
 	after(function() end)
 
 	describe("parse_extern_path", function()
-		-- Test valid paths that should match the pattern
 		it("should parse a valid path with all parts", function()
 			local path = "/dir/prefix/file1234567890abcdef1234567890abcdef-1234567890abcdef1234567890abcdef-42.pdf"
 			local dir_prefix, name_prefix, code_md5sum, context_md5sum = extract.parse_extern_path(path)
@@ -129,9 +128,61 @@ describe("memoize-extract.lua", function()
 			expect.equal(code_md5sum, "1234567890abcdef1234567890abcdef")
 			expect.equal(context_md5sum, "1234567890abcdef1234567890abcdef")
 		end)
-
 	end)
 
+	describe("split_prefix", function()
+		it("should split a valid prefix with directory and name", function()
+			local dir_prefix, name_prefix = extract.split_prefix("path/to/file")
+			expect.equal(dir_prefix, "path/to/")
+			expect.equal(name_prefix, "file")
+		end)
+
+		it("should handle a prefix with no directory", function()
+			local dir_prefix, name_prefix = extract.split_prefix("file")
+			expect.equal(dir_prefix, "")
+			expect.equal(name_prefix, "file")
+		end)
+
+		it("should return nil for an empty string", function()
+			local dir_prefix, name_prefix = extract.split_prefix("")
+			expect.exist(dir_prefix)
+			expect.equal(dir_prefix, "")
+			expect.equal(name_prefix, "")
+		end)
+
+		it("should return a slash as dir_prefix and empty name_prefix for '/'", function()
+			local dir_prefix, name_prefix = extract.split_prefix("/")
+			expect.equal(dir_prefix, "/")
+			expect.equal(name_prefix, "")
+		end)
+
+		it("should correctly handle input with trailing slash", function()
+			local dir_prefix, name_prefix = extract.split_prefix("path/to/")
+			expect.equal(dir_prefix, "path/to/")
+			expect.equal(name_prefix, "")
+		end)
+
+		it("should handle input with multiple slashes but no name", function()
+			local dir_prefix, name_prefix = extract.split_prefix("path///")
+			expect.equal(dir_prefix, "path///")
+			expect.equal(name_prefix, "")
+		end)
+
+		it("should handle input with special characters", function()
+			local dir_prefix, name_prefix = extract.split_prefix("path/to/@#$%^&*()")
+			expect.equal(dir_prefix, "path/to/")
+			expect.equal(name_prefix, "@#$%^&*()")
+		end)
+
+		it("should handle input with whitespace", function()
+			local dir_prefix, name_prefix = extract.split_prefix("path/to/ file ")
+			expect.equal(dir_prefix, "path/to/")
+			expect.equal(name_prefix, " file ")
+		end)
+	end)
+
+	describe("split_prefix", function()
+	end)
 
 	-- describe("xyz", function()
 	-- 	local tmp_dir = ""
