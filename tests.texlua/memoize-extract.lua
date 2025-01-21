@@ -197,6 +197,7 @@ do
 				local w = bp2pt(mediabox[3] - mediabox[1])
 				local h = bp2pt(mediabox[4] - mediabox[2])
 				if math.abs(w - i.width) > tolerance or math.abs(h - i.height) > tolerance and not force then
+					-- TODO get rid of this print -> should be logged instead
 					print("Sizes do not match -> skip that page", w, "vs", i.width "|", h, "vs", i.height)
 				else
 					table.insert(succ, p)
@@ -593,13 +594,17 @@ end
 ---@return boolean continue signals whether the line was identified as new_extern
 local function handle_mmz_new_extern(line, current_prefix, pages, force, check_for_memo, line_tab)
 	local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
+
 	if extern_path and page_n and w and h then
 		-- Found \mmzNewExtern -> mark the page for extraction later
 		extern_path = unquote(extern_path)
 		local dir_prefix, name_prefix, code_md5sum, context_md5sum = parse_extern_path(extern_path)
 		if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum then
-			logging:warn("Cannot parse line "..line)
-			-- TODO return? fails to assemble c_memo_file etc later on otherwise
+			logging:warn("Cannot parse line "..line.." properly")
+			-- returning true as the line was matched
+			-- don't add to pages array -> page gets skipped
+			-- line_tab will be not modifiable -> line won't get somehow commented out
+			return true
 		end
 
 		local extern_file_out = find_out(extern_path)
@@ -613,7 +618,10 @@ local function handle_mmz_new_extern(line, current_prefix, pages, force, check_f
 '%s', because the associated c-memo 
 '%s' and/or cc-memo '%s' 
 does not exist]]):format(page_n+1, extern_path, c_memo_file, cc_memo_file))
-			-- raises NotExtracted in python
+			-- returning true as the line was matched
+			-- don't add to pages array -> page gets skipped
+			-- line_tab will be not modifiable -> line won't get somehow commented out
+			return true
 		end
 
 		assert(current_prefix, "no prefix was parsed before this extern")
@@ -633,6 +641,7 @@ end
 ---@return string|nil gs_prefix
 local function handle_mmz_prefix(line, dirs_to_make, current_prefix, gs_prefix)
 	local m_p = line:match("\\mmzPrefix *{(.-)}")
+
 	if m_p then
 		-- Found \mmzPrefix -> store what extern directory to create later when it's needed
 		m_p = unquote(m_p)
