@@ -775,7 +775,7 @@ local function main(args)
 
 	-- collect data from file
 	local mmz = kpathsea:find_file(args.mmz, true)
-	local pages, new_mmz, gs_prefix, dirs_to_make = parse_mmz(io_lines(mmz))
+	local pages, new_mmz, gs_prefix, dirs_to_make = parse_mmz(io_lines(mmz), args.force, args.keep)
 
 	if #pages == 0 then
 		-- nothing to be processed -> terminate
