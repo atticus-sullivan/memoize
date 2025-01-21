@@ -191,14 +191,14 @@ do
 			local p = i.page
 			local page = pdfe.getpage(pdf, p)
 			if not page then
-				print("warning: page does not exist -> skip that page")
+				-- page not found -> skip it
+				table.insert(failed, {page=i, reason="not found"})
 			else
 				local mediabox = pdfe.getbox(page, "MediaBox")
 				local w = bp2pt(mediabox[3] - mediabox[1])
 				local h = bp2pt(mediabox[4] - mediabox[2])
 				if math.abs(w - i.width) > tolerance or math.abs(h - i.height) > tolerance and not force then
-					-- TODO get rid of this print -> should be logged instead
-					print("Sizes do not match -> skip that page", w, "vs", i.width "|", h, "vs", i.height)
+					table.insert(failed, {page=i, reason="dimension", real_width=w, real_height=h})
 				else
 					table.insert(succ, p)
 				end
@@ -208,7 +208,7 @@ do
 		pdfe.close(pdf)
 
 		table.sort(succ)
-		table.sort(failed)
+		table.sort(failed, function(a,b) return a.i.page < b.i.page end)
 		return succ, failed
 	end
 end
@@ -789,12 +789,17 @@ local function main(args)
 
 	-- check the dimensions
 	local succ, failed = check_dimensions(args.pdf, pages, 0.01, args.force)
-	assert(#succ == #pages, "not all pages match the provided dimensions")
+	assert(#succ + #failed == #pages, "Internal error: amount of pages for which the check succeded + failed does not match amount of requested pages")
 	local req_pages = succ
 
 	for _, p in ipairs(failed) do
-		logging:warn(([[I refuse to extract page %d from '%d' 
-because its size is not what I expected]]):format(p, args.pdf))
+		if p.reason == "dimension" then
+			logging:warn(([[I refuse to extract page %d from '%d' 
+because its size is not what I expected]]):format(p.i.page, args.pdf))
+		elseif p.reason == "not found" then
+			logging:warn(([[I refuse to extract page %d from '%d' 
+that page was not found in the pdf file]]):format(p.i.page, args.pdf))
+		end
 	end
 
 	-----------------------------------------------------------------------
