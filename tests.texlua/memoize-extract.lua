@@ -214,20 +214,47 @@ end
 
 -- restrict the complete rest of the script by undefining security relevant libraries
 -- this defines an allow-list what functions of these libraries still should be accessible
-if STAGE == "production" then
-	io     = nil
-	fio    = nil
-	os     = {exit=os.exit}
-	lfs    = {isfile=lfs.isfile}
-	pdfe   = nil
-	socket = nil
-	sio    = nil
-	texio  = nil
-	tex    = nil
-	ffi    = nil
-	-- TODO is this missing something for further restricting?
+local env = {
+	-- lua libraries
+	arg      = arg,
+	ipairs   = ipairs,
+	math     = math,
+	os       = { exit = os.exit, },
+	pairs    = pairs,
+	print    = print,
+	table    = table,
+	tonumber = tonumber,
+	tostring = tostring,
+	select   = select,
+
+	-- TODO this way or own version with logging?
+	error    = error,
+	assert   = assert,
+
+	-- luatex specific libraries
+	lfs      = {isfile=lfs.isfile},
+	kpse     = kpse,
+
+	-- memoize-extract specific global
+	STAGE    = STAGE,
+}
+do
+	-- Prevent trying to change the environment.
+	local function bad_index(...)
+		local msg = "Attempt to access an undefined index:"
+		for i = 2, select("#", ...) do
+			msg = msg ..tostring(select(i, ...)).." "
+		end
+		env.error(msg)
+	end
+	setmetatable(env, {
+		__index     = bad_index,
+		__metatable = false,
+		__newindex  = bad_index,
+	})
 end
 
+_ENV = env
 ----------------------------------
 -- restricted area startes here --
 ----------------------------------
@@ -344,21 +371,21 @@ do
 	logging.info = logging._info
 end
 
--- redefine assert
-assert = function(cond, msg)
-	if not cond then
-		logging:error("", msg)
-		logging:close()
-		exit.error()
-	end
-end
-
--- redefine error
-error = function(msg)
-	logging:error("", msg)
-	logging:close()
-	exit.error()
-end
+-- -- redefine assert
+-- assert = function(cond, msg)
+-- 	if not cond then
+-- 		logging:error("", msg)
+-- 		logging:close()
+-- 		exit.error()
+-- 	end
+-- end
+--
+-- -- redefine error
+-- error = function(msg)
+-- 	logging:error("", msg)
+-- 	logging:close()
+-- 	exit.error()
+-- end
 
 ---comment
 ---@param fn string quoted filename
@@ -723,5 +750,6 @@ else
 	-- expose functions for tests
 	return {
 		parse_extern_path = parse_extern_path,
+		split_prefix = split_prefix,
 	}
 end
