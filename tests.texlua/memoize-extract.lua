@@ -273,6 +273,8 @@ local exit = {
 	succ  = function() os.exit(0) end,
 }
 
+-- setup something like a logging library
+
 local logging = {
 	file      = nil,
 	header    = "memoize-extract.lua: ",
@@ -313,12 +315,15 @@ do
 		end
 	end
 
+	---Setup logging with specific arguments to avoid needing to pass quiet and format arguments to each logging call
+	---@param args table
 	function logging:set_args(args)
 		self.error = function(self, short, long) return self:_error(short, long, args.quiet, args.format) end
 		self.info  = function(self, text) return self:_info(text, args.quiet, args.format) end
 		self.warn  = function(self, text) return self:_warn(text, args.quiet, args.format) end
 	end
 
+	---Log an error
 	---@param short string
 	---@param long string
 	---@param quiet boolean
@@ -338,6 +343,7 @@ do
 	end
 	logging.error = logging._error
 
+	---Log a warning
 	---@param text string
 	---@param quiet boolean
 	---@param format string
@@ -355,6 +361,7 @@ do
 	end
 	logging.warn = logging._warn
 
+	---Log info message
 	---@param text string
 	---@param quiet boolean
 	---@param format string
@@ -387,7 +394,7 @@ end
 -- 	exit.error()
 -- end
 
----comment
+---Unquote a quoted string
 ---@param fn string quoted filename
 ---@return string
 local function unquote(fn)
@@ -405,6 +412,7 @@ local md5pat = ("%x"):rep(32)
 ---@return string|nil code_md5sum
 ---@return string|nil context_md5sum
 local function parse_extern_path(path)
+	-- TODO maybe lpeg would be better suited for parsing this
 	-- first split into d_prefix, name_prefix and rest
 	local dir_prefix, name_prefix, code_md5sum, context_md5sum, remaining = path:match("^(.*/)(.-)("..md5pat..")%-("..md5pat..")(.-).pdf$")
 
@@ -428,6 +436,9 @@ local function parse_extern_path(path)
 	return dir_prefix, name_prefix, code_md5sum, context_md5sum
 end
 
+---Split a mmz prefix
+-- in python this is a simple regex, but lua patterns cannot do the same things,
+-- so we need multiple ones
 ---@param prefix string
 ---@return string|nil dir_prefix
 ---@return string|nil name_prefix
