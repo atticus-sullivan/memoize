@@ -707,7 +707,8 @@ end
 ---@param pages Page[] information about the pages to be extracted
 ---@param dirs_to_make DirsToMake contains a function to mkdir the directory for each encountered prefix 
 ---@param page_pat string pattern with on %d to obtain the src paths of the pdfs containing page page contents
-local function postprocess_pages(pages, dirs_to_make, page_pat)
+---@param keep boolean
+local function postprocess_pages(pages, dirs_to_make, page_pat, keep)
 	for p, page in ipairs(pages) do
 		-- make directory if necessary
 		if dirs_to_make[page.prefix] then
@@ -719,7 +720,7 @@ local function postprocess_pages(pages, dirs_to_make, page_pat)
 		if lfs.isfile(extract) then
 			local succ, err = mv(extract, page.fn)
 			if succ then
-				if not args.keep then
+				if not keep then
 					-- wait until here to comment out the line in the .mmz so that only successfully extracted pages are uncommented
 					page.line_tab[1] = "%"..page.line_tab[1]
 				end
@@ -825,7 +826,7 @@ that page was not found in the pdf file]]):format(p.i.page, args.pdf))
 	end
 
 	-- postprocess extracted pages -> rename/move them
-	postprocess_pages(pages, dirs_to_make, page_pat)
+	postprocess_pages(pages, dirs_to_make, page_pat, args.keep)
 
 	-- write new |.mmz| file with |\mmzNewExtern| lines commented out.
 	if not args.keep then
