@@ -260,7 +260,7 @@ _ENV = env
 ----------------------------------
 
 -- setup kpathsea
-kpathsea = kpse.new("kpsewhich")
+kpathsea = kpse.new("texlua", "memoize-extract.lua")
 
 -- TODO this probably needs to be extended or we find something luatex native
 local function find_out(fname)
