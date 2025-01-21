@@ -263,6 +263,8 @@ _ENV = env
 kpathsea = kpse.new("texlua", "memoize-extract.lua")
 
 -- TODO this probably needs to be extended or we find something luatex native
+---@param fname string
+---@return string
 local function find_out(fname)
 	return fname
 end
@@ -274,7 +276,6 @@ local exit = {
 }
 
 -- setup something like a logging library
-
 local logging = {
 	file      = nil,
 	header    = "memoize-extract.lua: ",
@@ -560,172 +561,144 @@ function pathlib.with_suffix(path, suffix)
 	return r.."."..suffix
 end
 
-
------------------------------------------------
--- parsing + validating + deriving arguments --
------------------------------------------------
-
-if STAGE == "production" then
-	local defaults = {
-		pdf = nil,
-		prune = false,
-		keep = false,
-		format = nil,
-		force = false,
-		quiet = false,
-		mkdir = false,
-		-- version,
-		mmz = nil,
-	}
-
-	local args = parse_args(arg, defaults)
-	logging:set_args(args)
-
-	if not args.mmz then
-		error("mmz needs to be provided")
+---Normalizes the mmz argument into a .mmz filename
+---@param mmz string
+---@return string
+local function normalize_mmz(mmz)
+	if pathlib.suffix(mmz) == "tex" then
+		mmz = pathlib.with_suffix(mmz, "mmz")
+	elseif pathlib.suffix(mmz) ~= "mmz" then
+		mmz = pathlib.with_name(mmz, pathlib.name(mmz)..".mmz")
 	end
+	return mmz
+end
 
-	-- --mkdir -> just create a directory named |mmz|
-	if args.mkdir then
-		mkdir(args.mmz)
-		exit.succ()
-	end
+---@class Page
+---@field page integer
+---@field width number
+---@field height number
+---@field fn string
+---@field prefix string
+---@field line_tab LineTab
 
-	-- Normalize the |mmz| argument into a |.mmz| filename
-	if pathlib.suffix(args.mmz) == "tex" then
-		args.mmz = pathlib.with_suffix(args.mmz, "mmz")
-	elseif pathlib.suffix(args.mmz) ~= "mmz" then
-		args.mmz = pathlib.with_name(args.mmz, pathlib.name(args.mmz)..".mmz")
-	end
-	assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
-	-- TODO check if file exists
+---@alias LineTab [string,integer|nil]
+---@alias DirsToMake table<string, fun()>
 
-	if args.format then
-		local log_file = find_out(args.mmz..".log")
-		logging:info("Logging to "..log_file)
-		logging.file = assert(io_open_w(log_file))
-	end
+---@param line string
+---@param current_prefix string|nil
+---@param pages Page[]
+---@param force boolean
+---@param check_for_memo fun(c:string, cc:string):boolean checks if memo files are available
+---@param line_tab LineTab
+---@return boolean continue signals whether the line was identified as new_extern
+local function handle_mmz_new_extern(line, current_prefix, pages, force, check_for_memo, line_tab)
+	local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
+	if extern_path and page_n and w and h then
+		-- Found \mmzNewExtern -> mark the page for extraction later
+		extern_path = unquote(extern_path)
+		local dir_prefix, name_prefix, code_md5sum, context_md5sum = parse_extern_path(extern_path)
+		if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum then
+			logging:warn("Cannot parse line "..line)
+			-- TODO return? fails to assemble c_memo_file etc later on otherwise
+		end
 
-	-- infer the path to the pdf file
-	args.pdf = kpathsea:find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
-	assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
-	-- TODO check if file exists
+		local extern_file_out = find_out(extern_path)
 
-	local mmz = kpathsea:find_file(args.mmz, true)
+		-- check whether c-memo and cc-memo exist (in any input directory)
+		local c_memo_file  = pathlib.with_name(extern_path, name_prefix..code_md5sum..".memo")
+		local cc_memo_file = pathlib.with_name(extern_path, name_prefix..code_md5sum.."-"..context_md5sum..".memo")
 
-	local dirs_to_make = {}
-
-	----------------------------
-	-- collect data from file --
-	----------------------------
-
-	local pages     = {}
-	---@type [string,integer|nil][]
-	local new_mmz   = {}
-	local gs_prefix = nil
-
-	do
-		local current_prefix = nil
-		for line in io_lines(mmz) do
-			---@type [string]
-			local line_tab = {line} -- store the line in a table as this allows us to reference it (-> can be changed) instead of copying it
-			-- match against NewExtern first as this is the most common case
-			do
-				local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
-				if extern_path and page_n and w and h then
-					-- Found \mmzNewExtern -> mark the page for extraction later
-					extern_path = unquote(extern_path)
-					local dir_prefix, name_prefix, code_md5sum, context_md5sum = parse_extern_path(extern_path)
-					if not dir_prefix or not name_prefix or not code_md5sum or not context_md5sum then
-						logging:warn("Cannot parse line "..line)
-					end
-
-					local extern_file_out = find_out(extern_path)
-
-					-- check whether c-memo and cc-memo exist (in any input directory)
-					local c_memo  = kpathsea:find_file(pathlib.with_name(extern_path, name_prefix..code_md5sum..".memo"))
-					local cc_memo = kpathsea:find_file(pathlib.with_name(extern_path, name_prefix..code_md5sum.."-"..context_md5sum..".memo"))
-
-					if not args.force and not (c_memo and cc_memo) then
-						logging:warn(([[I refuse to extract page %d into extern 
+		if not force and not check_for_memo(c_memo_file, cc_memo_file) then
+			logging:warn(([[I refuse to extract page %d into extern 
 '%s', because the associated c-memo 
 '%s' and/or cc-memo '%s' 
-does not exist]]):format(page_n+1, extern_path, c_memo, cc_memo))
-						-- raises NotExtracted in python
-					end
+does not exist]]):format(page_n+1, extern_path, c_memo_file, cc_memo_file))
+			-- raises NotExtracted in python
+		end
 
-					assert(current_prefix, "no prefix was parsed before this extern")
-					line_tab[2] = #pages
-					table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix, line_tab=line_tab})
-					goto continue
-				end
-			end
+		assert(current_prefix, "no prefix was parsed before this extern")
+		line_tab[2] = #pages
+		table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix, line_tab=line_tab})
+		return true
+	end
+	return false
+end
 
-			do
-				local m_p = line:match("\\mmzPrefix *{(.-)}")
-				if m_p then
-					-- Found \mmzPrefix -> store what extern directory to create later when it's needed
-					m_p = unquote(m_p)
-					local dir_prefix, name_prefix = split_prefix(m_p)
-					if name_prefix and dir_prefix then
-						dirs_to_make[dir_prefix] = function() if dir_prefix ~= "" then mkdir(dir_prefix) end end
-						current_prefix = dir_prefix
-						-- save the first prefix that occurs
-						gs_prefix = gs_prefix or current_prefix
-					else
-						logging:warn("Cannot parse line "..line)
-					end
-					goto continue
-				end
-			end
-			-- nothing matched
+---@param line string
+---@param dirs_to_make DirsToMake
+---@param current_prefix string|nil
+---@param gs_prefix string|nil
+---@return boolean continue signals whether the line was identified as new_extern
+---@return string|nil current_prefix
+---@return string|nil gs_prefix
+local function handle_mmz_prefix(line, dirs_to_make, current_prefix, gs_prefix)
+	local m_p = line:match("\\mmzPrefix *{(.-)}")
+	if m_p then
+		-- Found \mmzPrefix -> store what extern directory to create later when it's needed
+		m_p = unquote(m_p)
+		local dir_prefix, name_prefix = split_prefix(m_p)
+		if name_prefix and dir_prefix then
+			dirs_to_make[dir_prefix] = function() if dir_prefix ~= "" then mkdir(dir_prefix) end end
+			current_prefix = dir_prefix
+			-- save the first prefix that occurs
+			gs_prefix = gs_prefix or current_prefix
+		else
+			logging:warn("Cannot parse line "..line)
+		end
+		return true, current_prefix, gs_prefix
+	end
+	return false, current_prefix, gs_prefix
+end
 
-			::continue::
-			if not args.keep then
-				table.insert(new_mmz, line_tab)
-			end
+---Fully parses the mmz file
+---@param mmz_lines fun(): any iterator over the lines of the mmz file. Usually the value returned by io.lines(mmz)
+---@param keep boolean
+---@param force boolean
+---@return Page[] pages information about the pages to be extracted
+---@return [string, integer|nil][] new_mmz data to be inserted later into the new mmz file (elements are also referenced by pages elements -> might change
+---@return string|nil gs_prefix first mmz prefix parsed -> might be used as prefix for the files generated by ghostscript
+---@return DirsToMake dirs_to_make contains a function to mkdir the directory for each encountered prefix 
+local function parse_mmz(mmz_lines, force, keep)
+	---@type Page[]
+	local pages          = {}
+
+	---@type [string,integer|nil][]
+	local new_mmz        = {}
+
+	local gs_prefix      = nil
+	local current_prefix = nil
+	local dirs_to_make   = {}
+
+	for line in mmz_lines do
+		---@type [string]
+		local line_tab = {line} -- store the line in a table as this allows us to reference it (-> can be changed) instead of copying it
+
+		local continue = false
+		-- local succ, err
+
+		-- match against NewExtern first as this is the most common case
+		continue = handle_mmz_new_extern(line, current_prefix, pages, force, function(c, cc) return kpathsea:find_file(c) and kpathsea:find_file(cc) end, line_tab)
+		if continue then goto continue end
+
+		continue, current_prefix, gs_prefix = handle_mmz_prefix(line, dirs_to_make, current_prefix, gs_prefix)
+		if continue then goto continue end
+
+		-- nothing matched
+
+		::continue::
+		if not keep then
+			table.insert(new_mmz, line_tab)
 		end
 	end
+	return pages, new_mmz, gs_prefix, dirs_to_make
+end
 
-	if #pages == 0 then
-		-- nothing to be processed -> terminate
-		logging:close()
-		exit.succ()
-	end
-
-	assert(gs_prefix, "at least one prefix needs to be read")
-	assert(dirs_to_make[gs_prefix], "nothing registered to create directory for the prefix")
-
-	-- check the dimensions
-	local succ, failed = check_dimensions(args.pdf, pages, 0.01, args.force)
-	assert(#succ == #pages, "not all pages match the provided dimensions")
-	local req_pages = succ
-
-	for _, p in ipairs(failed) do
-		logging:warn(([[I refuse to extract page %d from '%d' 
-because its size is not what I expected]]):format(p, args.pdf))
-	end
-
-	-------------------------------------------------------------------------
-	--          until here nothing was changed in the filesystem           --
-	-- (except if --mkdir was passed, in which case we immediately exited) --
-	-- (also the logfile was opened previously)                            --
-	-------------------------------------------------------------------------
-
-	-- extract the requested pages
-	-- Note: "mmz/0.pdf" corresponds not to the first page, but to the first page requested in req_pages
-
-	dirs_to_make[gs_prefix]()
-	dirs_to_make[gs_prefix] = nil
-	local succ, err, cleanup, page_pat = extract_pages(args.pdf, gs_prefix, req_pages)
-	assert(succ, err)
-	print("pat", page_pat)
-	print("gs_prefix", gs_prefix)
-	for _, p in ipairs(req_pages) do
-		print("requested page: ", p)
-	end
-
-	-- postprocess extracted pages -> rename/move them
+---Postprocess extracted pages
+---renames the files resulting from the extraction like it was specified in the .mmz
+---@param pages Page[] information about the pages to be extracted
+---@param dirs_to_make DirsToMake contains a function to mkdir the directory for each encountered prefix 
+---@param page_pat string pattern with on %d to obtain the src paths of the pdfs containing page page contents
+local function postprocess_pages(pages, dirs_to_make, page_pat)
 	for p, page in ipairs(pages) do
 		-- make directory if necessary
 		if dirs_to_make[page.prefix] then
@@ -751,15 +724,99 @@ because its size is not what I expected]]):format(p, args.pdf))
 		end
 		logging:info(("Page %d --> %s"):format(page.page, page.fn))
 	end
+end
+
+---Function to write the new (probably updated) contents of the mmz file
+---@param mmz file* file handle to which the content of the new mmz file should be written to
+---@param new_mmz [string, integer|nil][] data to be inserted later into the new mmz file (elements are also referenced by pages elements -> might change
+local function write_new_mmz(mmz, new_mmz)
+	local first = true
+	for _, line in ipairs(new_mmz) do
+		mmz:write(not first and "\n" or "", line[1])
+		first = false
+	end
+end
+
+local function main(args)
+	if not args.mmz then
+		error("mmz needs to be provided")
+	end
+
+	-- --mkdir -> just create a directory named |mmz|
+	if args.mkdir then
+		mkdir(args.mmz)
+		exit.succ()
+	end
+
+	args.mmz = normalize_mmz(args.mmz)
+	assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
+	assert(lfs.isfile(args.mmz), ".mmz file was not found")
+
+	-- setup logging to file
+	if args.format then
+		local log_file = find_out(args.mmz..".log")
+		logging:info("Logging to "..log_file)
+		logging.file = assert(io_open_w(log_file))
+	end
+
+	-- infer the path to the pdf file
+	args.pdf = kpathsea:find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
+	assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
+	assert(lfs.isfile(args.pdf), ".pdf file was not found")
+
+	-- collect data from file
+	local mmz = kpathsea:find_file(args.mmz, true)
+	local pages, new_mmz, gs_prefix, dirs_to_make = parse_mmz(io_lines(mmz))
+
+	if #pages == 0 then
+		-- nothing to be processed -> terminate
+		logging:info("No externs found that need processing")
+		logging:close()
+		exit.succ()
+	end
+
+	assert(gs_prefix, "at least one prefix needs to be read")
+	assert(dirs_to_make[gs_prefix], "nothing registered to create directory for the prefix")
+
+	-- check the dimensions
+	local succ, failed = check_dimensions(args.pdf, pages, 0.01, args.force)
+	assert(#succ == #pages, "not all pages match the provided dimensions")
+	local req_pages = succ
+
+	for _, p in ipairs(failed) do
+		logging:warn(([[I refuse to extract page %d from '%d' 
+because its size is not what I expected]]):format(p, args.pdf))
+	end
+
+	-----------------------------------------------------------------------
+	-- until here nothing was changed in the filesystem in this function --
+	-- => no above this no cleanup (except opened logfile needed)        --
+	-----------------------------------------------------------------------
+
+	-- extract the requested pages
+	-- Note: "mmz/0.pdf" corresponds not to the first page, but to the first page requested in req_pages
+
+	dirs_to_make[gs_prefix]()
+	dirs_to_make[gs_prefix] = nil
+	local succ, err, cleanup, page_pat = extract_pages(args.pdf, gs_prefix, req_pages)
+	assert(succ, err)
+	-- TODO should we check if there are multiple %d in the string?
+	assert(page_pat:find("%%d"), "page_pat must contain one %d for formatting")
+
+	-- TODO remove this block, it's only here for debugging now
+	print("pat", page_pat)
+	print("gs_prefix", gs_prefix)
+	for _, p in ipairs(req_pages) do
+		print("requested page: ", p)
+	end
+
+	-- postprocess extracted pages -> rename/move them
+	postprocess_pages(pages, dirs_to_make, page_pat)
 
 	-- write new |.mmz| file with |\mmzNewExtern| lines commented out.
 	if not args.keep then
 		local file = io_open_w(mmz)
-		local first = true
-		for _, line in ipairs(new_mmz) do
-			file:write(not first and "\n" or "", line[1])
-			first = false
-		end
+		write_new_mmz(file, new_mmz)
 		file:close()
 	end
 
@@ -768,11 +825,41 @@ because its size is not what I expected]]):format(p, args.pdf))
 
 	logging:close()
 	exit.succ()
+end
+
+if STAGE == "production" then
+	-----------------------------------------------
+	-- parsing + validating + deriving arguments --
+	-----------------------------------------------
+	local defaults = {
+		pdf = nil,
+		prune = false,
+		keep = false,
+		format = nil,
+		force = false,
+		quiet = false,
+		mkdir = false,
+		mmz = nil,
+	}
+
+	local args = parse_args(arg, defaults)
+	logging:set_args(args)
+	main(args)
+elseif STAGE == "LIBRARY" then
+	-- theoretically allows this to be loaded as library in LuaLaTeX via require
+	return main
 else
 	-- expose functions for tests
 	return {
-		parse_extern_path = parse_extern_path,
-		split_prefix      = split_prefix,
-		parse_args        = parse_args,
+		parse_extern_path     = parse_extern_path,
+		split_prefix          = split_prefix,
+		parse_args            = parse_args,
+		normalize_mmz         = normalize_mmz,
+		write_new_mmz         = write_new_mmz,
+		postprocess_pages     = postprocess_pages,
+		handle_mmz_prefix     = handle_mmz_prefix,
+		handle_mmz_new_extern = handle_mmz_new_extern,
+		-- pathlib?
+		-- logging?
 	}
 end
