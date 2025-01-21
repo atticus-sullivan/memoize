@@ -458,58 +458,69 @@ local function split_prefix(prefix)
 	return dir_prefix, name_prefix
 end
 
-local function parse_args(as, defaults)
+local parse_args
+do
 	local formats = {latex=true, plain=true, context=true}
-	local args = defaults
+	---Parse some CLI arguments
+	---@param as string[] array of arguments
+	---@param defaults table default values for the parameters
+	---@return table updated_parameters
+	parse_args = function(as, defaults)
+		local args = defaults
 
-	local i = 1
-	while i <= #as-1 do
-		local a = as[i]:match("^%-([a-zA-Z])$")
-		if not a then
-			a = as[i]:match("^%-%-([a-zA-Z]+)$")
-		end
-
-		if a == "h" then
-			print("help") -- TODO write the help output
-			exit.succ()
-		elseif a == "V" or a == "version" then
-			print(("memoize-extract.py of Memoize %s"):format(VERSION))
-			exit.succ()
-
-		elseif a == "P" or a == "pdf" then
-			args.pdf = as[i+1]
-			i = i+2
-
-		elseif a == "p" or a == "prune" then
-			args.prune = true
-
-		elseif a == "k" or a == "keep" then
-			args.keep = true
-
-		elseif a == "f" or a == "format" then
-			args.format = as[i+1]
-			if not formats[args.format] then
-				error("")
+		local i = 1
+		local len = #as-1 -- last argument is the positional argument
+		while i <= len do
+			local a = as[i]:match("^%-([a-zA-Z])$")
+			if not a then
+				a = as[i]:match("^%-%-([a-zA-Z]+)$")
 			end
-			i = i+2
 
-		elseif a == "f" or a == "force" then
-			args.force = true
+			if a == "h" then
+				print("help") -- TODO write the help output
+				exit.succ()
+			elseif a == "V" or a == "version" then
+				print(("memoize-extract.py of Memoize %s"):format(VERSION))
+				exit.succ()
 
-		elseif a == "q" or a == "quiet" then
-			args.quiet = true
+			elseif a == "P" or a == "pdf" then
+				assert(len >= i+1, "argument P/pdf needs an argument")
+				args.pdf = as[i+1]
+				i = i+1
 
-		elseif a == "m" or a == "mkdir" then
-			args.mkdir = true
+			elseif a == "p" or a == "prune" then
+				args.prune = true
 
-		else
-			error("invalid token passed '"..as[i].."'")
+			elseif a == "k" or a == "keep" then
+				args.keep = true
+
+			elseif a == "f" or a == "format" then
+				assert(len >= i+1, "argument f/format needs an argument")
+				args.format = as[i+1]
+				if not formats[args.format] then
+					error("invalid format passed")
+				end
+				i = i+1
+
+			elseif a == "f" or a == "force" then
+				args.force = true
+
+			elseif a == "q" or a == "quiet" then
+				args.quiet = true
+
+			elseif a == "m" or a == "mkdir" then
+				args.mkdir = true
+
+			else
+				error("invalid token passed '"..as[i].."'")
+			end
+			i = i+1
 		end
-		i = i+1
-	end
-	args.mmz = as[#as-0]
+		assert(#as >= 1, "at least the positional argument needs to be given")
+		args.mmz = as[#as]
 
-	return args
+		return args
+	end
 end
 
 -------------------------
