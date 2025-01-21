@@ -411,7 +411,7 @@ describe("memoize-extract.lua", function()
 
 			expect.truthy(result)
 			expect.equal(pages, {{
-				page = "1",
+				page = 1,
 				width = "100.0",
 				height = "200.0",
 				fn = "main.memo.dir/4FECA8D15F24F18E95D6D091A6137684-E778DCCCB8AAB0BBD3F6CFEEFD2421F8.pdf",
@@ -458,7 +458,7 @@ describe("memoize-extract.lua", function()
 
 			expect.truthy(result)
 			expect.equal(pages, {{
-				page = "1",
+				page = 1,
 				width = "100.0",
 				height = "200.0",
 				fn = "main.memo.dir/4FECA8D15F24F18E95D6D091A6137684-E778DCCCB8AAB0BBD3F6CFEEFD2421F8.pdf",

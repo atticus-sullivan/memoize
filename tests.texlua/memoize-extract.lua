@@ -141,20 +141,19 @@ do
 		-- page number in the original document. If you chose (for example) to process
 		-- even pages by using -sPageList=even, then the output of -sOutputFile=out%d.png
 		-- would still be out1.png, out2.png, out3.png etc.
-		local succ, err = os_spawn(
-			([[rungs -dSAFER -sDEVICE=pdfwrite -dNOPAUSE -dQUIET -dBATCH -sPageList="%s" -sOutputFile="%s" "%s"]]):format(
+		local cmd = ([[rungs -dSAFER -sDEVICE=pdfwrite -dNOPAUSE -dQUIET -dBATCH -sPageList="%s" -sOutputFile="%s" "%s"]]):format(
 				table.concat(pages, ","),
 				out_pat,
 				src_pdf
 			)
-		)
+		local succ, err = os_spawn(cmd)
 
 		-- removes generated files (in case they still exist)
 		local cleanup = function()
 			for i in ipairs(pages) do
 				local fn = out_pat:format(i)
 				if lfs.isfile(fn) then
-					os_rm(fn)
+					return os_rm(fn)
 				end
 			end
 		end
@@ -607,6 +606,7 @@ local function handle_mmz_new_extern(line, current_prefix, pages, force, check_f
 			return true
 		end
 
+		page_n = assert(tonumber(page_n))
 		local extern_file_out = find_out(extern_path)
 
 		-- check whether c-memo and cc-memo exist (in any input directory)
@@ -814,7 +814,7 @@ that page was not found in the pdf file]]):format(p.i.page, args.pdf))
 	dirs_to_make[gs_prefix]()
 	dirs_to_make[gs_prefix] = nil
 	local succ, err, cleanup, page_pat = extract_pages(args.pdf, gs_prefix, req_pages)
-	assert(succ, err)
+	assert(succ == 0, err)
 	-- TODO should we check if there are multiple %d in the string?
 	assert(page_pat:find("%%d"), "page_pat must contain one %d for formatting")
 
