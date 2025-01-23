@@ -42,8 +42,6 @@ local function bp2pt(bp)
 	return bp / 72 * 72.27
 end
 
-local kpathsea
-
 -- restricted function defined here
 local mkdir
 do
@@ -55,7 +53,7 @@ do
 	---@param name string
 	mkdir = function(name)
 		if not lfs.isdir(name) then
-			if kpathsea:out_name_ok(name) then
+			if kpse.out_name_ok(name) then
 				assert(name and name ~= "", "name: " .. name)
 				assert(lfs.mkdir(name))
 			else
@@ -74,7 +72,7 @@ do
 	---safely open a file in write mode
 	---@param name string
 	io_open_w = function(name)
-		if kpathsea:out_name_ok(name) then
+		if kpse.out_name_ok(name) then
 			return io_open(name, "w")
 		end
 	end
@@ -90,9 +88,9 @@ do
 	---@param src string
 	---@param dst string
 	mv = function(src, dst)
-		if not kpathsea:in_name_ok(src) then
+		if not kpse.in_name_ok(src) then
 			error("Moving from " .. src .. " not permitted.")
-		elseif not kpathsea:out_name_ok(dst) then
+		elseif not kpse.out_name_ok(dst) then
 			error("Moving to " .. dst .. " not permitted.")
 		else
 			return os_rename(src, dst)
@@ -109,7 +107,7 @@ do
 	---safely get an iterator over the lines of a file
 	---@param name string
 	io_lines = function(name)
-		if kpathsea:in_name_ok(name) then
+		if kpse.in_name_ok(name) then
 			return _io_lines(name)
 		else
 			error("Opening file "..name.." not permitted")
@@ -135,12 +133,12 @@ do
 	---@return function cleanup clean up all files created in the process
 	---@return string out_pat pattern to which the pages were written to
 	extract_pages = function(src_pdf, out_prefix, pages)
-		if not kpathsea:in_name_ok(src_pdf) then
+		if not kpse.in_name_ok(src_pdf) then
 			error("Opening " .. src_pdf .. " not permitted.")
 		end
 
 		local out_pat = ("%s%%d.pdf.tmp"):format(out_prefix)
-		if not kpathsea:out_name_ok(out_pat:format(0)) then
+		if not kpse.out_name_ok(out_pat:format(0)) then
 			error("Writing to " .. out_pat:format(0) .. " (and following) not permitted.")
 		end
 
@@ -185,7 +183,7 @@ do
 	---@return integer[] failed_pages
 	check_dimensions = function(src_pdf, page_dimensions, tolerance, force)
 		local pdf
-		if kpathsea:in_name_ok(src_pdf) then
+		if kpse.in_name_ok(src_pdf) then
 			pdf = pdfe.open(src_pdf)
 		else
 			error("Opening " .. src_pdf .. " not permitted.")
@@ -268,8 +266,8 @@ _ENV = env
 -- restricted area startes here --
 ----------------------------------
 
--- setup kpathsea
-kpathsea = kpse.new("texlua", "memoize-extract.lua")
+-- setup kpse
+kpse.set_program_name("texlua", "memoize-extract.lua")
 
 -- TODO this probably needs to be extended or we find something luatex native
 ---@param fname string
@@ -749,7 +747,7 @@ local function parse_mmz(mmz_lines, force, keep)
 		-- local succ, err
 
 		-- match against NewExtern first as this is the most common case
-		continue = handle_mmz_new_extern(line, current_prefix, pages, force, function(c, cc) return kpathsea:find_file(c) and kpathsea:find_file(cc) end, line_tab)
+		continue = handle_mmz_new_extern(line, current_prefix, pages, force, function(c, cc) return kpse.find_file(c) and kpse.find_file(cc) end, line_tab)
 		if continue then goto continue end
 
 		continue, current_prefix, gs_prefix = handle_mmz_prefix(line, dirs_to_make, current_prefix, gs_prefix)
@@ -833,12 +831,12 @@ local function main(args)
 	end
 
 	-- infer the path to the pdf file
-	args.pdf = kpathsea:find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
+	args.pdf = kpse.find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
 	assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
 	assert(lfs.isfile(args.pdf), ".pdf file was not found")
 
 	-- collect data from file
-	local mmz = kpathsea:find_file(args.mmz, true)
+	local mmz = kpse.find_file(args.mmz, true)
 	local pages, new_mmz, gs_prefix, dirs_to_make = parse_mmz(io_lines(mmz), args.force, args.keep)
 
 	if #pages == 0 then
