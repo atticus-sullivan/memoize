@@ -134,11 +134,12 @@ do
 	---@param src_pdf string
 	---@param out_prefix string
 	---@param pages [integer]
+	---@param pdf_version string
 	---@return integer|nil return_code of the underlying os.execute
 	---@return string|nil error returned by os.execute
 	---@return function cleanup clean up all files created in the process
 	---@return string out_pat pattern to which the pages were written to
-	extract_pages = function(src_pdf, out_prefix, pages)
+	extract_pages = function(src_pdf, out_prefix, pages, pdf_version)
 		if not kpse.in_name_ok_silent_extended(src_pdf) then
 			error("Opening " .. src_pdf .. " not permitted.")
 		end
@@ -148,15 +149,20 @@ do
 			error("Writing to " .. out_pat:format(0) .. " (and following) not permitted.")
 		end
 
+		if not pdf_version:find("^%d%.%d$") then
+			error("Invalid pdf_version provided: "..pdf_version)
+		end
+
 		-- Be aware that using the %d syntax for -sOutputFile=... does not reflect the
 		-- page number in the original document. If you chose (for example) to process
 		-- even pages by using -sPageList=even, then the output of -sOutputFile=out%d.png
 		-- would still be out1.png, out2.png, out3.png etc.
-		local cmd = ([[rungs -dSAFER -sDEVICE=pdfwrite -dNOPAUSE -dQUIET -dBATCH -sPageList="%s" -sOutputFile="%s" "%s"]]):format(
-				table.concat(pages, ","),
-				out_pat,
-				src_pdf
-			)
+		local cmd = ([[rungs -dSAFER -sDEVICE=pdfwrite -dNOPAUSE -dQUIET -dBATCH -dCompatibilityLevel="%s" -sPageList="%s" -sOutputFile="%s" "%s"]]):format(
+			pdf_version,
+			table.concat(pages, ","),
+			out_pat,
+			src_pdf
+		)
 		local succ, err = os_spawn(cmd)
 
 		-- removes generated files (in case they still exist)
@@ -190,6 +196,7 @@ do
 	---@param force boolean
 	---@return integer[] matching_pages
 	---@return integer[] failed_pages
+	---@return string pdf_version
 	check_dimensions = function(src_pdf, page_dimensions, tolerance, force)
 		local pdf
 		if kpse.in_name_ok_silent_extended(src_pdf) then
@@ -220,11 +227,14 @@ do
 			end
 		end
 
+		local v_major, v_minor = pdfe.getversion(pdf)
+		local pdf_version = ("%d.%d"):format(v_major, v_minor)
+
 		pdfe.close(pdf)
 
 		table.sort(succ)
 		table.sort(failed, function(a,b) return a.i.page < b.i.page end)
-		return succ, failed
+		return succ, failed, pdf_version
 	end
 end
 
@@ -859,7 +869,7 @@ local function main(args)
 	assert(dirs_to_make[gs_prefix], "nothing registered to create directory for the prefix")
 
 	-- check the dimensions
-	local succ, failed = check_dimensions(args.pdf, pages, 0.01, args.force)
+	local succ, failed, pdf_version = check_dimensions(args.pdf, pages, 0.01, args.force)
 	assert(#succ + #failed == #pages, "Internal error: amount of pages for which the check succeded + failed does not match amount of requested pages")
 	local req_pages = succ
 
@@ -883,7 +893,7 @@ that page was not found in the pdf file]]):format(p.i.page, args.pdf))
 
 	dirs_to_make[gs_prefix]()
 	dirs_to_make[gs_prefix] = nil
-	local succ, err, cleanup, page_pat = extract_pages(args.pdf, gs_prefix, req_pages)
+	local succ, err, cleanup, page_pat = extract_pages(args.pdf, gs_prefix, req_pages, pdf_version)
 	assert(succ == 0, err)
 	-- TODO should we check if there are multiple %d in the string?
 	assert(page_pat:find("%%d"), "page_pat must contain one %d for formatting")
