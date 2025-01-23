@@ -51,6 +51,7 @@ do
 	local lfs = lfs
 	if not lfs then error("lfs is not available. This script needs to be executed with texlua") end
 
+	---safely make new directory (non-recursive)
 	---@param name string
 	mkdir = function(name)
 		if not lfs.isdir(name) then
@@ -70,6 +71,7 @@ do
 	-- safe the functions/libraries needed in this restricted area
 	local io_open = io.open
 
+	---safely open a file in write mode
 	---@param name string
 	io_open_w = function(name)
 		if kpathsea:out_name_ok(name) then
@@ -84,6 +86,7 @@ do
 	-- safe the functions/libraries needed in this restricted area
 	local os_rename = os.rename
 
+	---safely rename a file aka moving it
 	---@param src string
 	---@param dst string
 	mv = function(src, dst)
@@ -103,6 +106,7 @@ do
 	-- safe the functions/libraries needed in this restricted area
 	local _io_lines = io.lines
 
+	---safely get an iterator over the lines of a file
 	---@param name string
 	io_lines = function(name)
 		if kpathsea:in_name_ok(name) then
@@ -120,13 +124,14 @@ do
 	local os_spawn = os.spawn
 	local os_rm    = os.remove
 
+	---extract all pages specified in `pages` from `src_pdf` to dedicated files specified via `out_prefix`
 	---@param src_pdf string
 	---@param out_prefix string
 	---@param pages [integer]
-	---@return integer|nil
-	---@return string
-	---@return function
-	---@return string
+	---@return integer|nil return_code of the underlying os.execute
+	---@return string|nil error returned by os.execute
+	---@return function cleanup clean up all files created in the process
+	---@return string out_pat pattern to which the pages were written to
 	extract_pages = function(src_pdf, out_prefix, pages)
 		if not kpathsea:in_name_ok(src_pdf) then
 			error("Opening " .. src_pdf .. " not permitted.")
@@ -169,11 +174,13 @@ do
 	local pdfe = pdfe
 	if not pdfe then error("pdfe library is not available. This script needs to be executed with texlua.") end
 
+	---check the dimensions of the pages in `src_pdf` specified in `page_dimensions`. Reports back which dimensions match (with `tolerance`) an which don't
 	---@param src_pdf string
 	---@param page_dimensions table
 	---@param tolerance number
 	---@param force boolean
-	---@return table, table
+	---@return integer[] matching_pages
+	---@return integer[] failed_pages
 	check_dimensions = function(src_pdf, page_dimensions, tolerance, force)
 		local pdf
 		if kpathsea:in_name_ok(src_pdf) then
