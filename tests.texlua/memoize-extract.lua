@@ -538,36 +538,53 @@ end
 -- only works on unix  --
 -------------------------
 local pathlib = {}
----@param path string
----@return string name
----@return string remainder
-function pathlib.name(path)
-	local r, name = path:match("^(.*)/([^/]+)/?$")
-	return name or path, r
-end
----@param path string
----@param name string
----@return string
-function pathlib.with_name(path, name)
-	local _, r = pathlib.name(path)
-	if r then
-		return r.."/"..name
+do
+	local pathsep="/" -- normal string
+	if os.type == "windows" then
+		pathsep="\\"
 	end
-	return name
-end
----@param path string
----@return string suffix
----@return string remainder
-function pathlib.suffix(path)
-	local r, suffix = path:match("^(.*)%.([^./]*)$")
-	return suffix or "", r or path
-end
----@param path string
----@param suffix string
----@return string
-function pathlib.with_suffix(path, suffix)
-	local _, r = pathlib.suffix(path)
-	return r.."."..suffix
+
+	---@param path string
+	---@return string name
+	---@return string remainder
+	function pathlib.name(path)
+		-- TODO should reject malformed paths?
+		-- but what is malformed
+		-- TODO cache the resulting string?
+		local r, name = path:match("^(.*)"..pathsep.."([^/]+)/?$")
+		return name or path, r
+	end
+	---@param path string
+	---@param name string
+	---@return string
+	function pathlib.with_name(path, name)
+		-- TODO should reject malformed paths?
+		-- but what is malformed
+		local _, r = pathlib.name(path)
+		if r then
+			return r..pathsep..name
+		end
+		return name
+	end
+
+	---@param path string
+	---@return string suffix
+	---@return string remainder
+	function pathlib.suffix(path)
+		-- TODO should reject malformed paths?
+		-- but what is malformed
+		local r, suffix = path:match("^(.*)%.([^./]*)$")
+		return suffix or "", r or path
+	end
+	---@param path string
+	---@param suffix string
+	---@return string
+	function pathlib.with_suffix(path, suffix)
+		-- TODO should reject malformed paths?
+		-- but what is malformed
+		local _, r = pathlib.suffix(path)
+		return r.."."..suffix
+	end
 end
 
 ---Normalizes the mmz argument into a .mmz filename
