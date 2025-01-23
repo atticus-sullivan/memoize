@@ -144,6 +144,7 @@ do
 			error("Opening " .. src_pdf .. " not permitted.")
 		end
 
+		-- TODO out_prefix goes into a lua pattern -> needs to be escaped!!
 		local out_pat = ("%s%%d.pdf.tmp"):format(out_prefix)
 		if not kpse.out_name_ok_silent_extended(out_pat:format(0)) then
 			error("Writing to " .. out_pat:format(0) .. " (and following) not permitted.")
@@ -895,8 +896,6 @@ that page was not found in the pdf file]]):format(p.i.page, args.pdf))
 	dirs_to_make[gs_prefix] = nil
 	local succ, err, cleanup, page_pat = extract_pages(args.pdf, gs_prefix, req_pages, pdf_version)
 	assert(succ == 0, err)
-	-- TODO should we check if there are multiple %d in the string?
-	assert(page_pat:find("%%d"), "page_pat must contain one %d for formatting")
 
 	-- postprocess extracted pages -> rename/move them
 	postprocess_pages(pages, dirs_to_make, page_pat, args.keep)
