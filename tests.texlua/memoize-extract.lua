@@ -111,6 +111,8 @@ do
 	io_lines = function(name)
 		if kpathsea:in_name_ok(name) then
 			return _io_lines(name)
+		else
+			error("Opening file "..name.." not permitted")
 		end
 	end
 end
