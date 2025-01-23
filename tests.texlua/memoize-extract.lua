@@ -50,15 +50,19 @@ do
 	if not lfs then error("lfs is not available. This script needs to be executed with texlua") end
 
 	---safely make new directory (non-recursive)
+	---Note: this is a nop if the directory already exists
 	---@param name string
 	mkdir = function(name)
-		if not lfs.isdir(name) then
-			if kpse.out_name_ok(name) then
-				assert(name and name ~= "", "name: " .. name)
-				assert(lfs.mkdir(name))
-			else
-				-- TODO
-			end
+		if lfs.isdir(name) then
+			return true
+		end
+
+		-- TODO https://gitlab.lisn.upsaclay.fr/texlive/luatex/-/blob/master/source/texk/web2c/luatexdir/lua/luatex-core.lua#L269
+		-- why also checking for `in`? isn't mkdir only about output?
+		if kpse.out_name_ok_silent_extended(name) and kpse.in_name_ok_silent_extended(name) then
+			return lfs.mkdir(name)
+		else
+			error("Mkdir "..name.." not permitted")
 		end
 	end
 end
@@ -72,8 +76,10 @@ do
 	---safely open a file in write mode
 	---@param name string
 	io_open_w = function(name)
-		if kpse.out_name_ok(name) then
+		if kpse.out_name_ok_silent_extended(name) then
 			return io_open(name, "w")
+		else
+			error("Opening (write) "..name.." not permitted")
 		end
 	end
 end
@@ -88,9 +94,9 @@ do
 	---@param src string
 	---@param dst string
 	mv = function(src, dst)
-		if not kpse.in_name_ok(src) then
+		if not kpse.in_name_ok_silent_extended(src) then
 			error("Moving from " .. src .. " not permitted.")
-		elseif not kpse.out_name_ok(dst) then
+		elseif not kpse.out_name_ok_silent_extended(dst) then
 			error("Moving to " .. dst .. " not permitted.")
 		else
 			return os_rename(src, dst)
@@ -107,10 +113,10 @@ do
 	---safely get an iterator over the lines of a file
 	---@param name string
 	io_lines = function(name)
-		if kpse.in_name_ok(name) then
+		if kpse.in_name_ok_silent_extended(name) then
 			return _io_lines(name)
 		else
-			error("Opening file "..name.." not permitted")
+			error("Opening (read) "..name.." not permitted")
 		end
 	end
 end
@@ -133,12 +139,12 @@ do
 	---@return function cleanup clean up all files created in the process
 	---@return string out_pat pattern to which the pages were written to
 	extract_pages = function(src_pdf, out_prefix, pages)
-		if not kpse.in_name_ok(src_pdf) then
+		if not kpse.in_name_ok_silent_extended(src_pdf) then
 			error("Opening " .. src_pdf .. " not permitted.")
 		end
 
 		local out_pat = ("%s%%d.pdf.tmp"):format(out_prefix)
-		if not kpse.out_name_ok(out_pat:format(0)) then
+		if not kpse.out_name_ok_silent_extended(out_pat:format(0)) then
 			error("Writing to " .. out_pat:format(0) .. " (and following) not permitted.")
 		end
 
@@ -157,8 +163,11 @@ do
 		local cleanup = function()
 			for i in ipairs(pages) do
 				local fn = out_pat:format(i)
-				if lfs.isfile(fn) then
-					return os_rm(fn)
+				-- this is cleanup -> fail silently, not throwing errors
+				if kpse.out_name_ok_silent_extended(fn) then
+					if lfs.isfile(fn) then
+						return os_rm(fn)
+					end
 				end
 			end
 		end
@@ -183,7 +192,7 @@ do
 	---@return integer[] failed_pages
 	check_dimensions = function(src_pdf, page_dimensions, tolerance, force)
 		local pdf
-		if kpse.in_name_ok(src_pdf) then
+		if kpse.in_name_ok_silent_extended(src_pdf) then
 			pdf = pdfe.open(src_pdf)
 		else
 			error("Opening " .. src_pdf .. " not permitted.")
