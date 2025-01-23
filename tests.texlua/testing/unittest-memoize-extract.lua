@@ -553,6 +553,109 @@ describe("memoize-extract.lua", function()
 		end)
 	end)
 
+
+	describe("pathlib library", function()
+		describe("sanitize_path", function()
+			it("raises an error for paths with invalid characters", function()
+				local input = "valid/path\0/with\tinvalid"
+				expect.fail(function() extract.pathlib.sanitize_path(input) end)
+			end)
+
+			it("handles valid paths without errors", function()
+				local input = "valid/path/without/invalid"
+				expect.not_fail(function() extract.pathlib.sanitize_path(input) end)
+			end)
+		end)
+
+		describe("sanitize_name", function()
+			it("raises an error for names with invalid characters", function()
+				local input = "invalid/name\0\\with\tchars"
+				expect.fail(function() extract.pathlib.sanitize_name(input) end)
+			end)
+
+			it("handles valid names without errors", function()
+				local input = "valid_name"
+				expect.not_fail(function() extract.pathlib.sanitize_name(input) end)
+			end)
+		end)
+
+		describe("sanitize_suffix", function()
+			it("raises an error for suffixes with invalid characters", function()
+				local input = "..\0suffix"
+				expect.fail(function() extract.pathlib.sanitize_suffix(input) end)
+			end)
+
+			it("handles valid suffixes without errors", function()
+				local input = "validsuffix"
+				expect.not_fail(function() extract.pathlib.sanitize_suffix(input) end)
+			end)
+		end)
+
+		describe("name", function()
+			it("extracts the name from a valid path", function()
+				local input = "/path/to/file.txt"
+				local expected_name = "file.txt"
+				local expected_remainder = "/path/to"
+				local name, remainder = extract.pathlib.name(input)
+				expect.equal(name, expected_name)
+				expect.equal(remainder, expected_remainder)
+			end)
+
+			it("raises an error for invalid paths", function()
+				local input = "/path/with\0invalid"
+				expect.fail(function() extract.pathlib.name(input) end)
+			end)
+		end)
+
+		describe("with_name", function()
+			it("replaces the name in a valid path", function()
+				local path = "/path/to/file.txt"
+				local new_name = "newfile.txt"
+				local expected = "/path/to/newfile.txt"
+				local result = extract.pathlib.with_name(path, new_name)
+				expect.equal(result, expected)
+			end)
+
+			it("raises an error for invalid names", function()
+				local path = "/path/to/file.txt"
+				local new_name = "invalid\0name"
+				expect.fail(function() extract.pathlib.with_name(path, new_name) end)
+			end)
+		end)
+
+		describe("suffix", function()
+			it("extracts the suffix from a valid path", function()
+				local input = "file.tar.gz"
+				local expected_suffix = "gz"
+				local expected_remainder = "file.tar"
+				local suffix, remainder = extract.pathlib.suffix(input)
+				expect.equal(suffix, expected_suffix)
+				expect.equal(remainder, expected_remainder)
+			end)
+
+			it("raises an error for invalid paths", function()
+				local input = "file\0invalid.txt"
+				expect.fail(function() extract.pathlib.suffix(input) end)
+			end)
+		end)
+
+		describe("with_suffix", function()
+			it("replaces the suffix in a valid path", function()
+				local path = "file.txt"
+				local new_suffix = "md"
+				local expected = "file.md"
+				local result = extract.pathlib.with_suffix(path, new_suffix)
+				expect.equal(result, expected)
+			end)
+
+			it("raises an error for invalid suffixes", function()
+				local path = "file.txt"
+				local new_suffix = "\0invalid"
+				expect.fail(function() extract.pathlib.with_suffix(path, new_suffix) end)
+			end)
+		end)
+	end)
+
 	-- describe("xyz", function()
 	-- 	local tmp_dir = ""
 	-- 	local original_dir = ""
