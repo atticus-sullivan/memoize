@@ -544,22 +544,56 @@ do
 		pathsep="\\"
 	end
 
+	---check for weird characters in the path
+	---@param path string
+	---@return string path
+	function pathlib.sanitize_path(path)
+		if path:match("[%c%%\t\r\n><*|]") then
+			error("Path contains invalid characters: "..path)
+		end
+		return path
+	end
+	---check for weird characters in the path
+	---same as sanitize_path but includes / and \
+	---@param name string
+	---@return string name
+	function pathlib.sanitize_name(name)
+		if name:match("[%c%%\t\r\n><*|/\\]") then
+			error("File has an invalid name: "..name)
+		end
+		return name
+	end
+	---check for invalid suffixes
+	---@param suffix string
+	---@return string suffix
+	function pathlib.sanitize_suffix(suffix)
+		if suffix:match("[%c%%\t\r\n><*|/\\]") then
+			error("Suffix contains invalid characters: "..suffix)
+		end
+		if suffix:match("^%.") then
+			error("Suffix should not start with a dot: "..suffix)
+		end
+		if suffix == "" then
+			error("suffix must not be empty")
+		end
+		return suffix
+	end
+
+	local name_pat = "^(.*)"..pathsep.."([^"..pathsep.."]+)["..pathsep.."]?$"
 	---@param path string
 	---@return string name
 	---@return string remainder
 	function pathlib.name(path)
-		-- TODO should reject malformed paths?
-		-- but what is malformed
-		-- TODO cache the resulting string?
-		local r, name = path:match("^(.*)"..pathsep.."([^/]+)/?$")
-		return name or path, r
+		path = pathlib.sanitize_path(path)
+		local r, name = path:match(name_pat)
+		return name or path, name and r or nil
 	end
 	---@param path string
 	---@param name string
 	---@return string
 	function pathlib.with_name(path, name)
-		-- TODO should reject malformed paths?
-		-- but what is malformed
+		path = pathlib.sanitize_path(path)
+		name = pathlib.sanitize_name(name)
 		local _, r = pathlib.name(path)
 		if r then
 			return r..pathsep..name
@@ -571,17 +605,20 @@ do
 	---@return string suffix
 	---@return string remainder
 	function pathlib.suffix(path)
-		-- TODO should reject malformed paths?
-		-- but what is malformed
+		path = pathlib.sanitize_path(path)
 		local r, suffix = path:match("^(.*)%.([^./]*)$")
+		if not suffix and path:match("^%.") then
+			-- handle hidden files
+			return "", path
+		end
 		return suffix or "", r or path
 	end
 	---@param path string
 	---@param suffix string
 	---@return string
 	function pathlib.with_suffix(path, suffix)
-		-- TODO should reject malformed paths?
-		-- but what is malformed
+		path = pathlib.sanitize_path(path)
+		suffix = pathlib.sanitize_suffix(suffix)
 		local _, r = pathlib.suffix(path)
 		return r.."."..suffix
 	end
@@ -900,7 +937,7 @@ else
 		postprocess_pages     = postprocess_pages,
 		handle_mmz_prefix     = handle_mmz_prefix,
 		handle_mmz_new_extern = handle_mmz_new_extern,
-		-- pathlib?
+		pathlib               = pathlib,
 		-- logging?
 	}
 end
