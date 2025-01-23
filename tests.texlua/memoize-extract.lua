@@ -898,13 +898,6 @@ that page was not found in the pdf file]]):format(p.i.page, args.pdf))
 	-- TODO should we check if there are multiple %d in the string?
 	assert(page_pat:find("%%d"), "page_pat must contain one %d for formatting")
 
-	-- TODO remove this block, it's only here for debugging now
-	print("pat", page_pat)
-	print("gs_prefix", gs_prefix)
-	for _, p in ipairs(req_pages) do
-		print("requested page: ", p)
-	end
-
 	-- postprocess extracted pages -> rename/move them
 	postprocess_pages(pages, dirs_to_make, page_pat, args.keep)
 
