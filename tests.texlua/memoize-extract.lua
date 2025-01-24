@@ -42,6 +42,19 @@ local function bp2pt(bp)
 	return bp / 72 * 72.27
 end
 
+local escape_pattern
+do
+	-- use concatenation to make the pattern easier readable
+	local p = "[".."%(".."%)".."%.".."%%".."%+".."%-".."%*".."%?".."%[".."%]".."%^".."%$".."]"
+	---make an arbitrary string safe for use in a lua pattern
+	---@param pat string
+	---@return string
+	escape_pattern = function(pat)
+		local r = pat:gsub(p, "%%%0")
+		return r
+	end
+end
+
 -- restricted function defined here
 local mkdir
 do
@@ -144,8 +157,7 @@ do
 			error("Opening " .. src_pdf .. " not permitted.")
 		end
 
-		-- TODO out_prefix goes into a lua pattern -> needs to be escaped!!
-		local out_pat = ("%s%%d.pdf.tmp"):format(out_prefix)
+		local out_pat = ("%s%%d.pdf.tmp"):format(escape_pattern(out_prefix))
 		if not kpse.out_name_ok_silent_extended(out_pat:format(0)) then
 			error("Writing to " .. out_pat:format(0) .. " (and following) not permitted.")
 		end
