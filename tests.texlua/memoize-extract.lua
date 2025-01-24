@@ -818,7 +818,6 @@ local function postprocess_pages(pages, dirs_to_make, page_pat, keep)
 					page.line_tab[1] = "%"..page.line_tab[1]
 				end
 			else
-				-- TODO or should this even be an error?
 				logging:warn("Finalizing page "..page.page.." failed: "..err)
 			end
 		else
