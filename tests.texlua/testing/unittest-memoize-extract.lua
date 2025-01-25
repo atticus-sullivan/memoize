@@ -669,6 +669,10 @@ describe("memoize-extract.lua", function()
 		end)
 	end)
 
+	-- in case we need tests working on the filesystem.
+	-- This snippet allows to do this in a temporary directory
+	-- (doesn't sandbox/chroot though)
+
 	-- describe("xyz", function()
 	-- 	local tmp_dir = ""
 	-- 	local original_dir = ""
