@@ -509,11 +509,20 @@ do
 		local args = defaults
 
 		local i = 1
-		local len = #as-1 -- last argument is the positional argument
+		local len = #as
 		while i <= len do
+			if as[i] == "--" then break end
+
 			local a = as[i]:match("^%-([a-zA-Z])$")
 			if not a then
 				a = as[i]:match("^%-%-([a-zA-Z]+)$")
+			end
+
+			-- positional argument reached
+			if not a then
+				-- no flags are parsed after the first positional
+				i = i - 1 -- "unparse" that argument
+				break
 			end
 
 			if a == "h" then
@@ -556,7 +565,8 @@ do
 			end
 			i = i+1
 		end
-		assert(#as >= 1, "at least the positional argument needs to be given")
+
+		assert(i+1 == #as, "wrong number of arguments passed, exactly one positional needs to be given")
 		args.mmz = as[#as]
 
 		return args
@@ -947,6 +957,13 @@ elseif STAGE == "LIBRARY" then
 	-- theoretically allows this to be loaded as library in LuaLaTeX via require
 	return main
 else
+	-- don't exit when testing
+	exit = {
+		-- TODO needs the real error from lua (just in case we decide to replace the error function later)
+		error = function() error("exited with error") end,
+		warn  = function() error("exited with warn") end,
+		succ  = function() error("exited with succ") end,
+	}
 	-- expose functions for tests
 	return {
 		parse_extern_path     = parse_extern_path,

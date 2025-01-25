@@ -237,29 +237,26 @@ describe("memoize-extract.lua", function()
 			})
 		end)
 
-		-- TODO should the argument parsing detect something like this? Or just take '-p' as mmz file
-		-- it("should fail if no mmz is given", function()
-		-- 	local defaults = {pdf = nil, format = "plain", quiet = false}
-		-- 	-- expect.fail(function()
-		-- 		extract.parse_args({"-P", "output.pdf", "-f", "latex", "-p"}, defaults)
-		-- 	-- end)
-		-- end)
+		it("should fail if no mmz is given", function()
+			local defaults = {pdf = nil, format = "plain", quiet = false}
+			expect.fail(function()
+				extract.parse_args({"-P", "output.pdf", "-f", "latex", "-p"}, defaults)
+			end)
+		end)
 
-		-- TODO -h would end up as mmz file -> argument parsing needs to be adjusted
-		-- it("should exit successfully and print help for '-h'", function()
-		-- 	local defaults = {}
-		-- 	expect.fail(function()
-		-- 		extract.parse_args({"-h"}, defaults)
-		-- 	end)
-		-- end)
+		it("should exit successfully and print help for '-h'", function()
+			local defaults = {}
+			expect.fail(function()
+				extract.parse_args({"-h"}, defaults)
+			end, "exited with succ")
+		end)
 
-		-- TODO -V would end up as mmz file -> argument parsing needs to be adjusted
-		-- it("should exit successfully and print version for '-V'", function()
-		-- 	local defaults = {}
-		-- 	expect.fail(function()
-		-- 		extract.parse_args({"-V"}, defaults)
-		-- 	end)
-		-- end)
+		it("should exit successfully and print version for '-V'", function()
+			local defaults = {}
+			expect.fail(function()
+				extract.parse_args({"-V"}, defaults)
+			end, "exited with succ")
+		end)
 
 		it("should handle no flags and return defaults", function()
 			local defaults = {pdf = nil, prune = false}
@@ -282,6 +279,23 @@ describe("memoize-extract.lua", function()
 			expect.fail(function()
 				extract.parse_args({"-z", "mmz"}, defaults)
 			end)
+		end)
+
+		it("nothing flag-like is allowed for the positional", function()
+			local defaults = {pdf = "main.pdf", prune = false}
+			expect.fail(function()
+				extract.parse_args({"-P", "paper.pdf", "--mmz"}, defaults)
+			end)
+		end)
+
+		it("uses -- as separator for the positionals", function()
+			local defaults = {pdf = "main.pdf", prune = false}
+			local args = extract.parse_args({"-P", "paper.pdf", "--", "--mmz"}, defaults)
+			expect.equal(args, {
+				pdf   = "paper.pdf",
+				prune = false,
+				mmz   = "--mmz",
+			})
 		end)
 	end)
 
@@ -552,7 +566,6 @@ describe("memoize-extract.lua", function()
 			expect.equal(dirs_to_make, {})
 		end)
 	end)
-
 
 	describe("pathlib library", function()
 		describe("sanitize_path", function()
