@@ -18,8 +18,9 @@
 -- The files belonging to this work and covered by LPPL are listed in
 -- <texmf>/doc/generic/memoize/FILES.
 
-local VERSION = '2025/01/17 v1.4.1' -- TODO(release)
-
+-------------------
+-- general notes --
+-------------------
 
 -- libraries already available due to the use of texlua
 -- lfs:
@@ -31,10 +32,32 @@ local VERSION = '2025/01/17 v1.4.1' -- TODO(release)
 --  interface to pdf files: used to get information about a pdf file
 --  see https://texdoc.org/serve/LuaTeX/0
 
+-- policy regarding error handling:
+-- - Functions other than the main-function should not exit
+--   (this includes calling log_error and log_assert) as they don't know the
+--   context in which they have been called (includes what cleanup needs to be
+--   done).
+--
+-- - Instead, functions might do return nil, "errmsg" in order to indicate an
+--   error has occured and describe it. (This is quite common in lua)
+--
+-- - Functions without return value should return true in case of success in
+--   order to be able to detect the nil in the error case
+
+------------------
+-- some globals --
+------------------
+local VERSION = '2025/01/17 v1.4.1' -- TODO(release)
+
 -- global variable STAGE is used as indicator whether this is loaded as library for testing or executed directly
 -- variable is "testing" if exactly this string and "production" in all other cases
 STAGE = STAGE == "testing" and "testing" or "production"
 
+---------------------------------------------------------------------
+-- some functions also used inside the security relevant functions --
+-- -> need to be defined beforehand                                --
+-- TODO could also use "forward declarations"                      --
+---------------------------------------------------------------------
 
 ---@param bp number
 ---@return number
@@ -42,8 +65,11 @@ local function bp2pt(bp)
 	return bp / 72 * 72.27
 end
 
+-- not per-se a critical function, but variable strings used as patterns in
+-- critical functions make this function critical
 local escape_pattern
 do
+	-- use scoping to avoid exposing this variable
 	-- use concatenation to make the pattern easier readable
 	local p = "[".."%(".."%)".."%.".."%%".."%+".."%-".."%*".."%?".."%[".."%]".."%^".."%$".."]"
 	---make an arbitrary string safe for use in a lua pattern
@@ -55,16 +81,24 @@ do
 	end
 end
 
+-----------------------------------------
+-- security relevant functions go here --
+--           simple wrappers           --
+-----------------------------------------
+
 -- restricted function defined here
 local mkdir
 do
 	-- safe the functions/libraries needed in this restricted area
 	local lfs = lfs
+	-- this is not inside the function but the startup code -> can error here
 	if not lfs then error("lfs is not available. This script needs to be executed with texlua") end
 
 	---safely make new directory (non-recursive)
 	---Note: this is a nop if the directory already exists
 	---@param name string
+	---@return boolean? success
+	---@return string? error message
 	mkdir = function(name)
 		if lfs.isdir(name) then
 			return true
@@ -75,7 +109,7 @@ do
 		if kpse.out_name_ok_silent_extended(name) and kpse.in_name_ok_silent_extended(name) then
 			return lfs.mkdir(name)
 		else
-			error("Mkdir "..name.." not permitted")
+			return nil, ("Mkdir '%s' not permitted"):format(name)
 		end
 	end
 end
@@ -88,11 +122,13 @@ do
 
 	---safely open a file in write mode
 	---@param name string
+	---@return file*? file_handle
+	---@return string? error message
 	io_open_w = function(name)
 		if kpse.out_name_ok_silent_extended(name) then
 			return io_open(name, "w")
 		else
-			error("Opening (write) "..name.." not permitted")
+			return nil, ("Opening (write) '%s' not permitted"):format(name)
 		end
 	end
 end
@@ -106,11 +142,13 @@ do
 	---safely rename a file aka moving it
 	---@param src string
 	---@param dst string
+	---@return boolean? success
+	---@return string? error message
 	mv = function(src, dst)
 		if not kpse.in_name_ok_silent_extended(src) then
-			error("Moving from " .. src .. " not permitted.")
+			return nil, ("Moving from '%s' not permitted."):format(src)
 		elseif not kpse.out_name_ok_silent_extended(dst) then
-			error("Moving to " .. dst .. " not permitted.")
+			return nil, ("Moving to '%s' not permitted."):format(dst)
 		else
 			return os_rename(src, dst)
 		end
@@ -125,45 +163,54 @@ do
 
 	---safely get an iterator over the lines of a file
 	---@param name string
+	---@return fun()? iterator
+	---@return string? error message
 	io_lines = function(name)
 		if kpse.in_name_ok_silent_extended(name) then
 			return _io_lines(name)
 		else
-			error("Opening (read) "..name.." not permitted")
+			return nil, ("Opening (read) '%s' not permitted"):format(name)
 		end
 	end
 end
+
+-----------------------------------------
+-- security relevant functions go here --
+--       more complex functions        --
+-----------------------------------------
 
 -- restricted function defined here
 local extract_pages
 do
 	-- safe the functions/libraries needed in this restricted area
 	local lfs = lfs
+	-- this is not inside the function but the startup code -> can error here
 	if not lfs then error("lfs is not available. This script needs to be executed with texlua") end
 	local os_spawn = os.spawn
 	local os_rm    = os.remove
 
 	---extract all pages specified in `pages` from `src_pdf` to dedicated files specified via `out_prefix`
+	---can raise an error
 	---@param src_pdf string
 	---@param out_prefix string
 	---@param pages [integer]
 	---@param pdf_version string
-	---@return integer|nil return_code of the underlying os.execute
-	---@return string|nil error returned by os.execute
-	---@return function cleanup clean up all files created in the process
-	---@return string out_pat pattern to which the pages were written to
+	---@return integer? return_code of the underlying os.execute
+	---@return string? error returned by os.execute
+	---@return function? cleanup clean up all files created in the process
+	---@return string? out_pat pattern to which the pages were written to
 	extract_pages = function(src_pdf, out_prefix, pages, pdf_version)
 		if not kpse.in_name_ok_silent_extended(src_pdf) then
-			error("Opening " .. src_pdf .. " not permitted.")
+			return nil, ("Opening '%s' not permitted."):format(src_pdf), nil, nil
 		end
 
 		local out_pat = ("%s%%d.pdf.tmp"):format(escape_pattern(out_prefix))
 		if not kpse.out_name_ok_silent_extended(out_pat:format(0)) then
-			error("Writing to " .. out_pat:format(0) .. " (and following) not permitted.")
+			return nil, ("Writing to '%s' (and following) not permitted."):format(out_pat:format(0)), nil, nil
 		end
 
 		if not pdf_version:find("^%d%.%d$") then
-			error("Invalid pdf_version provided: "..pdf_version)
+			return nil, ("Invalid pdf_version provided: %s"):format(pdf_version)
 		end
 
 		-- Be aware that using the %d syntax for -sOutputFile=... does not reflect the
@@ -196,10 +243,14 @@ do
 end
 
 -- restricted function defined here
+-- TODO do we really consider this a restricted function? (if we consider pdfe
+-- not security relevant, we can allow it for the normal part and move this
+-- function to the normal part)
 local check_dimensions
 do
 	-- safe the functions/libraries needed in this restricted area
 	local pdfe = pdfe
+	-- this is not inside the function but the startup code -> can error here
 	if not pdfe then error("pdfe library is not available. This script needs to be executed with texlua.") end
 
 	---check the dimensions of the pages in `src_pdf` specified in `page_dimensions`. Reports back which dimensions match (with `tolerance`) an which don't
@@ -210,12 +261,13 @@ do
 	---@return integer[] matching_pages
 	---@return integer[] failed_pages
 	---@return string pdf_version
+	---@overload fun(src_pdf:string, page_dimensions:table, tolerance:number, force:boolean): nil, string?, nil
 	check_dimensions = function(src_pdf, page_dimensions, tolerance, force)
 		local pdf
 		if kpse.in_name_ok_silent_extended(src_pdf) then
 			pdf = pdfe.open(src_pdf)
 		else
-			error("Opening " .. src_pdf .. " not permitted.")
+			return nil, ("Opening %s not permitted."):format(src_pdf)
 		end
 
 		-- collect which pages succeded the dimension check
@@ -258,17 +310,13 @@ local env = {
 	arg      = arg,
 	ipairs   = ipairs,
 	math     = math,
-	os       = { exit = os.exit, },
+	os       = { type = os.type, },
 	pairs    = pairs,
 	print    = print,
 	table    = table,
 	tonumber = tonumber,
 	tostring = tostring,
 	select   = select,
-
-	-- TODO this way or own version with logging?
-	error    = error,
-	assert   = assert,
 
 	-- luatex specific libraries
 	lfs      = {isfile=lfs.isfile},
@@ -277,14 +325,43 @@ local env = {
 	-- memoize-extract specific global
 	STAGE    = STAGE,
 }
+
+local exit
+if STAGE == "testing" then
+	-- in testing environment avoid exiting the whole test
+	-- -> instead raise an error which can be catched
+
+	-- store the error function independent of the environment
+	local error = error
+	exit = {
+		error = function() error("exited with error") end,
+		warn  = function() error("exited with warn") end,
+		succ  = function() error("exited with succ") end,
+	}
+else
+	local os_exit = os.exit
+	exit = {
+		error = function() os_exit(11) end,
+		warn  = function() os_exit(10) end,
+		succ  = function() os_exit(0) end,
+	}
+end
+
 do
+	-- I don't like using the debug library, but getting a traceback here is a
+	-- must to find where the error originates from
+	local debug_traceback = debug.traceback
+	-- use the lua error function -> exits immediately
+	local error = error
+
 	-- Prevent trying to change the environment.
 	local function bad_index(...)
 		local msg = "Attempt to access an undefined index:"
 		for i = 2, select("#", ...) do
 			msg = msg ..tostring(select(i, ...)).." "
 		end
-		env.error(msg)
+		msg = msg.."\n\n"..debug_traceback(nil, 2)
+		error(msg)
 	end
 	setmetatable(env, {
 		__index     = bad_index,
@@ -307,12 +384,6 @@ kpse.set_program_name("texlua", "memoize-extract.lua")
 local function find_out(fname)
 	return fname
 end
-
-local exit = {
-	error = function() os.exit(11) end,
-	warn  = function() os.exit(10) end,
-	succ  = function() os.exit(0) end,
-}
 
 -- setup something like a logging library
 local logging = {
@@ -418,21 +489,32 @@ do
 	logging.info = logging._info
 end
 
--- -- redefine assert
--- assert = function(cond, msg)
--- 	if not cond then
--- 		logging:error("", msg)
--- 		logging:close()
--- 		exit.error()
--- 	end
--- end
---
--- -- redefine error
--- error = function(msg)
--- 	logging:error("", msg)
--- 	logging:close()
--- 	exit.error()
--- end
+-- "forward declarations" for logging versions of error/assert
+local log_assert
+local log_error
+
+---analog to lua's assert, define a function which uses logging for the message instead
+---@param cond boolean condition to be checked by this assertion
+---@param msg string? message shown when the assertion fails
+---@param cleanup fun()? function invoked after logging the message used for additional cleanup (can still use logging, the log-file is not yet closed). Might be omitted
+log_assert = function(cond, msg, cleanup)
+	if not cond then
+		logging:error("", msg or "")
+		if cleanup then cleanup() end
+		logging:close()
+		exit.error()
+	end
+end
+
+---analog to lua's error, define a function which uses logging for the message instead
+---@param msg string? message shown
+---@param cleanup fun()? function invoked after logging the message used for additional cleanup (can still use logging, the log-file is not yet closed). Might be omitted
+log_error = function(msg, cleanup)
+	logging:error("", msg)
+	if cleanup then cleanup() end
+	logging:close()
+	exit.error()
+end
 
 ---Unquote a quoted string
 ---@param fn string quoted filename
@@ -447,10 +529,10 @@ local md5pat = ("%x"):rep(32)
 -- in python this is a simple regex, but lua patterns cannot do the same things,
 -- so we need multiple ones
 ---@param path string
----@return string|nil dir_prefix
----@return string|nil name_prefix
----@return string|nil code_md5sum
----@return string|nil context_md5sum
+---@return string? dir_prefix
+---@return string? name_prefix
+---@return string? code_md5sum
+---@return string? context_md5sum
 local function parse_extern_path(path)
 	-- TODO maybe lpeg would be better suited for parsing this
 	-- first split into d_prefix, name_prefix and rest
@@ -480,8 +562,8 @@ end
 -- in python this is a simple regex, but lua patterns cannot do the same things,
 -- so we need multiple ones
 ---@param prefix string
----@return string|nil dir_prefix
----@return string|nil name_prefix
+---@return string? dir_prefix
+---@return string? name_prefix
 local function split_prefix(prefix)
 	-- try with dir_prefix and name_prefix
 	local dir_prefix, name_prefix = prefix:match("^(.*/)(.-)$")
@@ -504,7 +586,8 @@ do
 	---Parse some CLI arguments
 	---@param as string[] array of arguments
 	---@param defaults table default values for the parameters
-	---@return table updated_parameters
+	---@return table? updated_parameters
+	---@return string? err_msg
 	parse_args = function(as, defaults)
 		local args = defaults
 
@@ -533,7 +616,7 @@ do
 				exit.succ()
 
 			elseif a == "P" or a == "pdf" then
-				assert(len >= i+1, "argument P/pdf needs an argument")
+				if len < i+1 then return nil,  ("argument P/pdf needs an argument") end
 				args.pdf = as[i+1]
 				i = i+1
 
@@ -544,10 +627,10 @@ do
 				args.keep = true
 
 			elseif a == "f" or a == "format" then
-				assert(len >= i+1, "argument f/format needs an argument")
+				if len < i+1 then return nil, ("argument f/format needs an argument") end
 				args.format = as[i+1]
 				if not formats[args.format] then
-					error("invalid format passed")
+					return nil, ("invalid format passed")
 				end
 				i = i+1
 
@@ -561,12 +644,12 @@ do
 				args.mkdir = true
 
 			else
-				error("invalid token passed '"..as[i].."'")
+				return nil, ("invalid token passed '%s'"):format(as[i])
 			end
 			i = i+1
 		end
 
-		assert(i+1 == #as, "wrong number of arguments passed, exactly one positional needs to be given")
+		if i+1 ~= #as then return nil, ("wrong number of arguments passed, exactly one positional needs to be given") end
 		args.mmz = as[#as]
 
 		return args
@@ -575,7 +658,6 @@ end
 
 -------------------------
 -- temporary pathutils --
--- only works on unix  --
 -------------------------
 local pathlib = {}
 do
@@ -587,54 +669,68 @@ do
 	---check for weird characters in the path
 	---@param path string
 	---@return string path
+	---@overload fun(path:string):nil, string?
 	function pathlib.sanitize_path(path)
 		if path:match("[%c%%\t\r\n><*|]") then
-			error("Path contains invalid characters: "..path)
+			return nil, ("Path contains invalid characters: %s"):format(path)
 		end
 		return path
 	end
 	---check for weird characters in the path
 	---same as sanitize_path but includes / and \
 	---@param name string
-	---@return string name
+	---@return string? name
+	---@overload fun(name:string):nil, string?
 	function pathlib.sanitize_name(name)
 		if name:match("[%c%%\t\r\n><*|/\\]") then
-			error("File has an invalid name: "..name)
+			return nil, ("File has an invalid name: %s"):format(name)
 		end
 		return name
 	end
 	---check for invalid suffixes
 	---@param suffix string
-	---@return string suffix
+	---@return string? suffix
+	---@overload fun(suffix:string):nil, string?
 	function pathlib.sanitize_suffix(suffix)
 		if suffix:match("[%c%%\t\r\n><*|/\\]") then
-			error("Suffix contains invalid characters: "..suffix)
+			return nil, ("Suffix contains invalid characters: %s"):format(suffix)
 		end
 		if suffix:match("^%.") then
-			error("Suffix should not start with a dot: "..suffix)
+			return nil, ("Suffix should not start with a dot: %s"):format(suffix)
 		end
 		if suffix == "" then
-			error("suffix must not be empty")
+			return nil, ("suffix must not be empty")
 		end
 		return suffix
 	end
 
 	local name_pat = "^(.*)"..pathsep.."([^"..pathsep.."]+)["..pathsep.."]?$"
+
 	---@param path string
 	---@return string name
 	---@return string remainder
+	---@overload fun(name:string):nil,string?
 	function pathlib.name(path)
-		path = pathlib.sanitize_path(path)
+		local err
+		path, err = pathlib.sanitize_path(path)
+		if not path then return nil, err end
+
 		local r, name = path:match(name_pat)
 		return name or path, name and r or nil
 	end
+
 	---@param path string
 	---@param name string
 	---@return string
+	---@overload fun(name:string, path:string):nil,string?
 	function pathlib.with_name(path, name)
-		path = pathlib.sanitize_path(path)
-		name = pathlib.sanitize_name(name)
-		local _, r = pathlib.name(path)
+		local err
+		name, err = pathlib.sanitize_name(name)
+		if not name then return nil, err end
+
+		local n, r = pathlib.name(path)
+		if not n then return nil, r end
+
 		if r then
 			return r..pathsep..name
 		end
@@ -644,22 +740,32 @@ do
 	---@param path string
 	---@return string suffix
 	---@return string remainder
+	---@overload fun(path:string):nil,string?
 	function pathlib.suffix(path)
-		path = pathlib.sanitize_path(path)
+		local err
+		path, err = pathlib.sanitize_path(path)
+		if not path then return nil, err end
+
 		local r, suffix = path:match("^(.*)%.([^./]*)$")
 		if not suffix and path:match("^%.") then
-			-- handle hidden files
+			-- is hidden file
 			return "", path
 		end
 		return suffix or "", r or path
 	end
+
 	---@param path string
 	---@param suffix string
 	---@return string
+	---@overload fun(path:string, suffix:string):nil,string?
 	function pathlib.with_suffix(path, suffix)
-		path = pathlib.sanitize_path(path)
-		suffix = pathlib.sanitize_suffix(suffix)
-		local _, r = pathlib.suffix(path)
+		local err
+		suffix, err = pathlib.sanitize_suffix(suffix)
+		if not suffix then return nil, err end
+
+		local s, r = pathlib.suffix(path)
+		if not s then return nil, r end
+
 		return r.."."..suffix
 	end
 end
@@ -667,11 +773,15 @@ end
 ---Normalizes the mmz argument into a .mmz filename
 ---@param mmz string
 ---@return string
+---@overload fun(mmz:string): nil, string?
 local function normalize_mmz(mmz)
-	if pathlib.suffix(mmz) == "tex" then
-		mmz = pathlib.with_suffix(mmz, "mmz")
-	elseif pathlib.suffix(mmz) ~= "mmz" then
-		mmz = pathlib.with_name(mmz, pathlib.name(mmz)..".mmz")
+	local suffix, err = pathlib.suffix(mmz)
+	if not suffix then return nil, err end
+
+	if suffix == "tex" then
+		return  pathlib.with_suffix(mmz, "mmz")
+	elseif suffix ~= "mmz" then
+		return pathlib.with_name(mmz, pathlib.name(mmz)..".mmz")
 	end
 	return mmz
 end
@@ -684,16 +794,18 @@ end
 ---@field prefix string
 ---@field line_tab LineTab
 
----@alias LineTab [string,integer|nil]
----@alias DirsToMake table<string, fun()>
+---@alias LineTab [string,integer?]
+---@alias DirsToMake table<string, fun():boolean?, string?>
 
+--- can raise an error (careful as there is true,false,nil for first return)
 ---@param line string
----@param current_prefix string|nil
+---@param current_prefix string?
 ---@param pages Page[]
 ---@param force boolean
 ---@param check_for_memo fun(c:string, cc:string):boolean checks if memo files are available
 ---@param line_tab LineTab
----@return boolean continue signals whether the line was identified as new_extern
+---@return boolean? continue signals whether the line was identified as new_extern
+---@return string? err_msg
 local function handle_mmz_new_extern(line, current_prefix, pages, force, check_for_memo, line_tab)
 	local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
 
@@ -709,12 +821,18 @@ local function handle_mmz_new_extern(line, current_prefix, pages, force, check_f
 			return true
 		end
 
-		page_n = assert(tonumber(page_n))
+		local err
+		page_n, err = tonumber(page_n)
+		if not page_n then return nil, err end
+
 		local extern_file_out = find_out(extern_path)
 
 		-- check whether c-memo and cc-memo exist (in any input directory)
-		local c_memo_file  = pathlib.with_name(extern_path, name_prefix..code_md5sum..".memo")
-		local cc_memo_file = pathlib.with_name(extern_path, name_prefix..code_md5sum.."-"..context_md5sum..".memo")
+		local c_memo_file, err  = pathlib.with_name(extern_path, name_prefix..code_md5sum..".memo")
+		if not c_memo_file then return nil, err end
+
+		local cc_memo_file, err = pathlib.with_name(extern_path, name_prefix..code_md5sum.."-"..context_md5sum..".memo")
+		if not cc_memo_file then return nil, err end
 
 		if not force and not check_for_memo(c_memo_file, cc_memo_file) then
 			logging:warn(([[I refuse to extract page %d into extern 
@@ -727,7 +845,8 @@ does not exist]]):format(page_n+1, extern_path, c_memo_file, cc_memo_file))
 			return true
 		end
 
-		assert(current_prefix, "no prefix was parsed before this extern")
+		if not current_prefix then return nil, "no prefix was parsed before this extern" end
+
 		line_tab[2] = #pages
 		table.insert(pages, {page=page_n, width=w, height=h, fn=extern_file_out, prefix=current_prefix, line_tab=line_tab})
 		return true
@@ -735,13 +854,14 @@ does not exist]]):format(page_n+1, extern_path, c_memo_file, cc_memo_file))
 	return false
 end
 
+--- does not raise an error
 ---@param line string
 ---@param dirs_to_make DirsToMake
----@param current_prefix string|nil
----@param gs_prefix string|nil
+---@param current_prefix string?
+---@param gs_prefix string?
 ---@return boolean continue signals whether the line was identified as new_extern
----@return string|nil current_prefix
----@return string|nil gs_prefix
+---@return string? current_prefix
+---@return string? gs_prefix
 local function handle_mmz_prefix(line, dirs_to_make, current_prefix, gs_prefix)
 	local m_p = line:match("\\mmzPrefix *{(.-)}")
 
@@ -750,7 +870,7 @@ local function handle_mmz_prefix(line, dirs_to_make, current_prefix, gs_prefix)
 		m_p = unquote(m_p)
 		local dir_prefix, name_prefix = split_prefix(m_p)
 		if name_prefix and dir_prefix then
-			dirs_to_make[dir_prefix] = function() if dir_prefix ~= "" then mkdir(dir_prefix) end end
+			dirs_to_make[dir_prefix] = function() if dir_prefix ~= "" then return mkdir(dir_prefix) end return true end
 			current_prefix = dir_prefix
 			-- save the first prefix that occurs
 			gs_prefix = gs_prefix or current_prefix
@@ -763,18 +883,20 @@ local function handle_mmz_prefix(line, dirs_to_make, current_prefix, gs_prefix)
 end
 
 ---Fully parses the mmz file
+--- can raise an error
 ---@param mmz_lines fun(): any iterator over the lines of the mmz file. Usually the value returned by io.lines(mmz)
 ---@param keep boolean
 ---@param force boolean
 ---@return Page[] pages information about the pages to be extracted
----@return [string, integer|nil][] new_mmz data to be inserted later into the new mmz file (elements are also referenced by pages elements -> might change
----@return string|nil gs_prefix first mmz prefix parsed -> might be used as prefix for the files generated by ghostscript
+---@return [string, integer?][] new_mmz data to be inserted later into the new mmz file (elements are also referenced by pages elements -> might change
+---@return string? gs_prefix first mmz prefix parsed -> might be used as prefix for the files generated by ghostscript
 ---@return DirsToMake dirs_to_make contains a function to mkdir the directory for each encountered prefix 
+---@overload fun(mmz_lines, force, keep): nil, string?
 local function parse_mmz(mmz_lines, force, keep)
 	---@type Page[]
 	local pages          = {}
 
-	---@type [string,integer|nil][]
+	---@type [string,integer?][]
 	local new_mmz        = {}
 
 	local gs_prefix      = nil
@@ -786,10 +908,12 @@ local function parse_mmz(mmz_lines, force, keep)
 		local line_tab = {line} -- store the line in a table as this allows us to reference it (-> can be changed) instead of copying it
 
 		local continue = false
+		local err
 		-- local succ, err
 
 		-- match against NewExtern first as this is the most common case
-		continue = handle_mmz_new_extern(line, current_prefix, pages, force, function(c, cc) return kpse.find_file(c) and kpse.find_file(cc) end, line_tab)
+		continue, err = handle_mmz_new_extern(line, current_prefix, pages, force, function(c, cc) return kpse.find_file(c) and kpse.find_file(cc) end, line_tab)
+		if continue == nil then return nil, err end
 		if continue then goto continue end
 
 		continue, current_prefix, gs_prefix = handle_mmz_prefix(line, dirs_to_make, current_prefix, gs_prefix)
@@ -807,6 +931,7 @@ end
 
 ---Postprocess extracted pages
 ---renames the files resulting from the extraction like it was specified in the .mmz
+---does not error
 ---@param pages Page[] information about the pages to be extracted
 ---@param dirs_to_make DirsToMake contains a function to mkdir the directory for each encountered prefix 
 ---@param page_pat string pattern with on %d to obtain the src paths of the pdfs containing page page contents
@@ -839,8 +964,9 @@ local function postprocess_pages(pages, dirs_to_make, page_pat, keep)
 end
 
 ---Function to write the new (probably updated) contents of the mmz file
+---does not error
 ---@param mmz file* file handle to which the content of the new mmz file should be written to
----@param new_mmz [string, integer|nil][] data to be inserted later into the new mmz file (elements are also referenced by pages elements -> might change
+---@param new_mmz [string, integer?][] data to be inserted later into the new mmz file (elements are also referenced by pages elements -> might change
 local function write_new_mmz(mmz, new_mmz)
 	local first = true
 	for _, line in ipairs(new_mmz) do
@@ -851,7 +977,7 @@ end
 
 local function main(args)
 	if not args.mmz then
-		error("mmz needs to be provided")
+		log_error("mmz needs to be provided")
 	end
 
 	-- --mkdir -> just create a directory named |mmz|
@@ -861,24 +987,27 @@ local function main(args)
 	end
 
 	args.mmz = normalize_mmz(args.mmz)
-	assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
-	assert(lfs.isfile(args.mmz), ".mmz file was not found")
+	log_assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
+	log_assert(lfs.isfile(args.mmz), ".mmz file was not found")
 
 	-- setup logging to file
 	if args.format then
 		local log_file = find_out(args.mmz..".log")
 		logging:info("Logging to "..log_file)
-		logging.file = assert(io_open_w(log_file))
+		local f, err = io_open_w(log_file)
+		logging.file = f
 	end
 
 	-- infer the path to the pdf file
 	args.pdf = kpse.find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
-	assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
-	assert(lfs.isfile(args.pdf), ".pdf file was not found")
+	log_assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
+	log_assert(lfs.isfile(args.pdf), ".pdf file was not found")
 
 	-- collect data from file
 	local mmz = kpse.find_file(args.mmz, true)
 	local pages, new_mmz, gs_prefix, dirs_to_make = parse_mmz(io_lines(mmz), args.force, args.keep)
+	-- check if parsing has returned an error
+	log_assert(pages ~= nil, new_mmz)
 
 	if #pages == 0 then
 		-- nothing to be processed -> terminate
@@ -887,12 +1016,15 @@ local function main(args)
 		exit.succ()
 	end
 
-	assert(gs_prefix, "at least one prefix needs to be read")
-	assert(dirs_to_make[gs_prefix], "nothing registered to create directory for the prefix")
+	log_assert(gs_prefix, "at least one prefix needs to be read")
+	log_assert(dirs_to_make[gs_prefix], "nothing registered to create directory for the prefix")
 
 	-- check the dimensions
 	local succ, failed, pdf_version = check_dimensions(args.pdf, pages, 0.01, args.force)
-	assert(#succ + #failed == #pages, "Internal error: amount of pages for which the check succeded + failed does not match amount of requested pages")
+	-- check if has returned an error
+	log_assert(succ ~= nil, failed)
+	-- additional check
+	log_assert(#succ + #failed == #pages, "Internal error: amount of pages for which the check succeded + failed does not match amount of requested pages")
 	local req_pages = succ
 
 	for _, p in ipairs(failed) do
@@ -902,6 +1034,8 @@ because its size is not what I expected]]):format(p.i.page, args.pdf))
 		elseif p.reason == "not found" then
 			logging:warn(([[I refuse to extract page %d from '%d' 
 that page was not found in the pdf file]]):format(p.i.page, args.pdf))
+		else
+			log_error("Internal error: Unknown dimension-check-fail-reason: "..(p.reason or ""))
 		end
 	end
 
@@ -916,15 +1050,20 @@ that page was not found in the pdf file]]):format(p.i.page, args.pdf))
 	dirs_to_make[gs_prefix]()
 	dirs_to_make[gs_prefix] = nil
 	local succ, err, cleanup, page_pat = extract_pages(args.pdf, gs_prefix, req_pages, pdf_version)
-	assert(succ == 0, err)
+	-- make sure cleanup is not nil
+	cleanup = cleanup or function() end
+	log_assert(succ == 0, err, cleanup)
 
 	-- postprocess extracted pages -> rename/move them
 	postprocess_pages(pages, dirs_to_make, page_pat, args.keep)
 
 	-- write new |.mmz| file with |\mmzNewExtern| lines commented out.
 	if not args.keep then
-		local file = io_open_w(mmz)
+		local file, err = io_open_w(mmz)
+		log_assert(file ~= nil, err, cleanup)
+
 		write_new_mmz(file, new_mmz)
+
 		file:close()
 	end
 
@@ -957,13 +1096,6 @@ elseif STAGE == "LIBRARY" then
 	-- theoretically allows this to be loaded as library in LuaLaTeX via require
 	return main
 else
-	-- don't exit when testing
-	exit = {
-		-- TODO needs the real error from lua (just in case we decide to replace the error function later)
-		error = function() error("exited with error") end,
-		warn  = function() error("exited with warn") end,
-		succ  = function() error("exited with succ") end,
-	}
 	-- expose functions for tests
 	return {
 		parse_extern_path     = parse_extern_path,

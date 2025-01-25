@@ -195,16 +195,20 @@ describe("memoize-extract.lua", function()
 
 		it("should raise an error for missing value after '-P'", function()
 			local defaults = {}
-			expect.fail(function()
-				extract.parse_args({"-P", "mmz"}, defaults)
-			end)
+
+			local a, err = extract.parse_args({"-P", "mmz"}, defaults)
+
+			expect.not_exist(a)
+			expect.equal(err, "wrong number of arguments passed, exactly one positional needs to be given")
 		end)
 
 		it("should raise an error for invalid format", function()
 			local defaults = {}
-			expect.fail(function()
-				extract.parse_args({"-f", "invalidformat", "mmz"}, defaults)
-			end)
+
+			local a, err = extract.parse_args({"-f", "invalidformat", "mmz"}, defaults)
+
+			expect.not_exist(a)
+			expect.equal(err, "invalid format passed")
 		end)
 
 		it("should handle multiple flags correctly", function()
@@ -239,13 +243,16 @@ describe("memoize-extract.lua", function()
 
 		it("should fail if no mmz is given", function()
 			local defaults = {pdf = nil, format = "plain", quiet = false}
-			expect.fail(function()
-				extract.parse_args({"-P", "output.pdf", "-f", "latex", "-p"}, defaults)
-			end)
+
+			local a, err = extract.parse_args({"-P", "output.pdf", "-f", "latex", "-p"}, defaults)
+
+			expect.not_exist(a)
+			expect.equal(err, "wrong number of arguments passed, exactly one positional needs to be given")
 		end)
 
 		it("should exit successfully and print help for '-h'", function()
 			local defaults = {}
+
 			expect.fail(function()
 				extract.parse_args({"-h"}, defaults)
 			end, "exited with succ")
@@ -253,6 +260,7 @@ describe("memoize-extract.lua", function()
 
 		it("should exit successfully and print version for '-V'", function()
 			local defaults = {}
+
 			expect.fail(function()
 				extract.parse_args({"-V"}, defaults)
 			end, "exited with succ")
@@ -269,23 +277,29 @@ describe("memoize-extract.lua", function()
 
 		it("should fail with no arguments", function()
 			local defaults = {pdf = nil, prune = false}
-			expect.fail(function()
-				extract.parse_args({}, defaults)
-			end)
+
+			local a, err = extract.parse_args({}, defaults)
+
+			expect.not_exist(a)
+			expect.equal(err, "wrong number of arguments passed, exactly one positional needs to be given")
 		end)
 
 		it("should raise an error for an unrecognized argument", function()
 			local defaults = {}
-			expect.fail(function()
-				extract.parse_args({"-z", "mmz"}, defaults)
-			end)
+
+			local args, err = extract.parse_args({"-z", "mmz"}, defaults)
+
+			expect.not_exist(args)
+			expect.equal(err, "invalid token passed '-z'")
 		end)
 
 		it("nothing flag-like is allowed for the positional", function()
 			local defaults = {pdf = "main.pdf", prune = false}
-			expect.fail(function()
-				extract.parse_args({"-P", "paper.pdf", "--mmz"}, defaults)
-			end)
+
+			local a, err = extract.parse_args({"-P", "paper.pdf", "--mmz"}, defaults)
+
+			expect.not_exist(a)
+			expect.equal(err, "invalid token passed '--mmz'")
 		end)
 
 		it("uses -- as separator for the positionals", function()
@@ -490,10 +504,10 @@ describe("memoize-extract.lua", function()
 			local line = [[\mmzNewExtern {main.memo.dir/4FECA8D15F24F18E95D6D091A6137684-E778DCCCB8AAB0BBD3F6CFEEFD2421F8.pdf}{1}{100.0pt}{200.0pt}]]
 			local line_tab = {line}
 
-			expect.fail(function()
-				extract.handle_mmz_new_extern(line, current_prefix, pages, false, check_for_memo_succ, line_tab)
-			end, "no prefix was parsed before this extern")
+			local cont, err = extract.handle_mmz_new_extern(line, current_prefix, pages, false, check_for_memo_succ, line_tab)
 
+			expect.truthy(cont == nil)
+			expect.equal(err, "no prefix was parsed before this extern")
 		end)
 	end)
 
@@ -571,7 +585,11 @@ describe("memoize-extract.lua", function()
 		describe("sanitize_path", function()
 			it("raises an error for paths with invalid characters", function()
 				local input = "valid/path\0/with\tinvalid"
-				expect.fail(function() extract.pathlib.sanitize_path(input) end)
+
+				local p, err = extract.pathlib.sanitize_path(input)
+
+				expect.not_exist(p)
+				expect.equal(err, "Path contains invalid characters: valid/path\000/with\tinvalid")
 			end)
 
 			it("handles valid paths without errors", function()
@@ -583,7 +601,11 @@ describe("memoize-extract.lua", function()
 		describe("sanitize_name", function()
 			it("raises an error for names with invalid characters", function()
 				local input = "invalid/name\0\\with\tchars"
-				expect.fail(function() extract.pathlib.sanitize_name(input) end)
+
+				local n, err = extract.pathlib.sanitize_name(input)
+
+				expect.not_exist(n)
+				expect.equal(err, "File has an invalid name: invalid/name\0\\with\tchars")
 			end)
 
 			it("handles valid names without errors", function()
@@ -595,7 +617,11 @@ describe("memoize-extract.lua", function()
 		describe("sanitize_suffix", function()
 			it("raises an error for suffixes with invalid characters", function()
 				local input = "..\0suffix"
-				expect.fail(function() extract.pathlib.sanitize_suffix(input) end)
+
+				local s, err = extract.pathlib.sanitize_suffix(input)
+
+				expect.not_exist(s)
+				expect.equal(err, "Suffix contains invalid characters: ..\0suffix")
 			end)
 
 			it("handles valid suffixes without errors", function()
@@ -616,7 +642,11 @@ describe("memoize-extract.lua", function()
 
 			it("raises an error for invalid paths", function()
 				local input = "/path/with\0invalid"
-				expect.fail(function() extract.pathlib.name(input) end)
+
+				local n, err = extract.pathlib.name(input)
+
+				expect.not_exist(n)
+				expect.equal(err, "Path contains invalid characters: /path/with\0invalid")
 			end)
 		end)
 
@@ -632,7 +662,10 @@ describe("memoize-extract.lua", function()
 			it("raises an error for invalid names", function()
 				local path = "/path/to/file.txt"
 				local new_name = "invalid\0name"
-				expect.fail(function() extract.pathlib.with_name(path, new_name) end)
+
+				local p, err = extract.pathlib.with_name(path, new_name)
+				expect.not_exist(p)
+				expect.equal(err, "File has an invalid name: invalid\0name")
 			end)
 		end)
 
@@ -648,7 +681,11 @@ describe("memoize-extract.lua", function()
 
 			it("raises an error for invalid paths", function()
 				local input = "file\0invalid.txt"
-				expect.fail(function() extract.pathlib.suffix(input) end)
+
+				local s, err = extract.pathlib.suffix(input)
+
+				expect.not_exist(s)
+				expect.equal(err, "Path contains invalid characters: file\0invalid.txt")
 			end)
 		end)
 
@@ -664,7 +701,11 @@ describe("memoize-extract.lua", function()
 			it("raises an error for invalid suffixes", function()
 				local path = "file.txt"
 				local new_suffix = "\0invalid"
-				expect.fail(function() extract.pathlib.with_suffix(path, new_suffix) end)
+
+				local p, err = extract.pathlib.with_suffix(path, new_suffix)
+
+				expect.not_exist(p)
+				expect.equal(err, "Suffix contains invalid characters: \0invalid")
 			end)
 		end)
 	end)
