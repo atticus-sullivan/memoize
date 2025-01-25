@@ -67,18 +67,13 @@ end
 
 -- not per-se a critical function, but variable strings used as patterns in
 -- critical functions make this function critical
-local escape_pattern
-do
-	-- use scoping to avoid exposing this variable
-	-- use concatenation to make the pattern easier readable
-	local p = "[".."%(".."%)".."%.".."%%".."%+".."%-".."%*".."%?".."%[".."%]".."%^".."%$".."]"
-	---make an arbitrary string safe for use in a lua pattern
-	---@param pat string
-	---@return string
-	escape_pattern = function(pat)
-		local r = pat:gsub(p, "%%%0")
-		return r
-	end
+
+---make an arbitrary string safe for use in a lua pattern
+---@param pat string
+---@return string
+local function escape_pattern_for_format(pat)
+	local r = pat:gsub("[%%]", "%%%0")
+	return r
 end
 
 -----------------------------------------
@@ -204,7 +199,7 @@ do
 			return nil, ("Opening '%s' not permitted."):format(src_pdf), nil, nil
 		end
 
-		local out_pat = ("%s%%d.pdf.tmp"):format(escape_pattern(out_prefix))
+		local out_pat = ("%s%%d.pdf.tmp"):format(escape_pattern_for_format(out_prefix))
 		if not kpse.out_name_ok_silent_extended(out_pat:format(0)) then
 			return nil, ("Writing to '%s' (and following) not permitted."):format(out_pat:format(0)), nil, nil
 		end
