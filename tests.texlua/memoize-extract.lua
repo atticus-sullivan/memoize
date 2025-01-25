@@ -604,7 +604,25 @@ do
 			end
 
 			if a == "h" then
-				print("help") -- TODO write the help output
+				print([[usage: memoize-extract.lua [-h] [-P PDF] [-k] [-F {latex,plain,context}] [-f] [-q] [-m] [-V] mmz
+
+Extract extern pages produced by package Memoize out of the document PDF.
+
+positional arguments:
+  mmz                   the record file produced by Memoize: doc.mmz when compiling doc.tex (doc and doc.tex are accepted as well)
+
+options:
+  -h, --help            show this help message and exit
+  -P, --pdf PDF         extract from file PDF
+  -k, --keep            do not mark externs as extracted
+  -F, --format {latex,plain,context}
+                        the format of the TeX document invoking extraction
+  -f, --force           extract even if the size-check fails
+  -q, --quiet           describe what's happening
+  -m, --mkdir           create a directory (and exit); mmz argument is interpreted as directory name
+  -V, --version         show program's version number and exit
+
+For details, see the man page or the Memoize documentation.]])
 				exit.succ()
 			elseif a == "V" or a == "version" then
 				print(("memoize-extract.py of Memoize %s"):format(VERSION))
