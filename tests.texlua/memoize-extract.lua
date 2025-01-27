@@ -572,11 +572,37 @@ end
 -- setup kpse
 kpse.set_program_name("texlua", "memoize-extract.lua")
 
--- TODO this probably needs to be extended or we find something luatex native
----@param fname string
----@return string
-local function find_out(fname)
-	return fname
+local find_out
+do
+	local texmf_output_directory = kpse.var_value("TEXMF_OUTPUT_DIRECTORY")
+	local texmfoutput            = kpse.var_value("TEXMFOUTPUT")
+
+	---@param fname string
+	---@return string?
+	---@return string?
+	find_out = function(fname)
+		local abs, err = pathlib.path_is_absolute(fname)
+		if abs == nil then return nil, err end
+		if abs then return fname end
+
+		local texmf_od
+		if texmf_output_directory then
+			local p, err = pathutil.join(texmf_output_directory, fname)
+			if not p then return nil, err end
+			texmf_od = p
+			if kpse.in_name_ok_silent_extended(p) then return p end
+		end
+		if not texmf_output_directory then
+			if kpse.in_name_ok_silent_extended(fname) then return fname end
+		end
+		if texmfoutput then
+			local p, err = pathutil.join(texmfoutput, fname)
+			if not p then return nil, err end
+			if kpse.in_name_ok_silent_extended(p) then return p end
+		end
+
+		return texmf_od or fname
+	end
 end
 
 -- setup something like a logging library
