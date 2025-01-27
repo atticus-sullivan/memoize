@@ -708,6 +708,49 @@ describe("memoize-extract.lua", function()
 				expect.equal(err, "Suffix contains invalid characters: \0invalid")
 			end)
 		end)
+
+		describe("join", function()
+			it("joins two valid paths", function()
+				local result, err = extract.pathlib.join("/media", "memoize")
+
+				expect.not_exist(err)
+				expect.equal(result, "/media/memoize")
+			end)
+
+			it("joins multiple valid paths", function()
+				local result, err = extract.pathlib.join("/media", "memoize", "testing", "assets")
+
+				expect.not_exist(err)
+				expect.equal(result, "/media/memoize/testing/assets")
+			end)
+
+			it("no duplicated pathsep", function()
+				local result, err = extract.pathlib.join("/media/", "memoize", "/testing", "assets")
+
+				expect.not_exist(err)
+				expect.equal(result, "/media/memoize/testing/assets")
+			end)
+
+			it("works with no path", function()
+				local result, err = extract.pathlib.join()
+
+				expect.not_exist(err)
+				expect.equal(result, "")
+			end)
+
+			it("aborts with invalid path (1)", function()
+				local result, err = extract.pathlib.join("/me\0dia", "memoize", "testing", "assets")
+
+				expect.not_exist(result)
+				expect.equal(err,  "Path contains invalid characters: /me\0dia")
+			end)
+			it("aborts with invalid path (2)", function()
+				local result, err = extract.pathlib.join("/media", "memoize", "testing", "ass\0ets")
+
+				expect.not_exist(result)
+				expect.equal(err, "Path contains invalid characters: ass\000ets")
+			end)
+		end)
 	end)
 
 	-- in case we need tests working on the filesystem.
