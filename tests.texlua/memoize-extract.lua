@@ -212,7 +212,7 @@ do
 		-- page number in the original document. If you chose (for example) to process
 		-- even pages by using -sPageList=even, then the output of -sOutputFile=out%d.png
 		-- would still be out1.png, out2.png, out3.png etc.
-		local cmd = ([[rungs -dSAFER -sDEVICE=pdfwrite -dNOPAUSE -dQUIET -dBATCH -dCompatibilityLevel="%s" -sPageList="%s" -sOutputFile="%s" "%s"]]):format(
+		local cmd = ([[rungs -dSAFER -sDEVICE=pdfwrite -dNOPAUSE -dQUIET -dBATCH -dAutoRotatePages=/None -dCompatibilityLevel="%s" -sPageList="%s" -sOutputFile="%s" "%s"]]):format(
 			pdf_version,
 			table.concat(pages, ","),
 			out_pat,
