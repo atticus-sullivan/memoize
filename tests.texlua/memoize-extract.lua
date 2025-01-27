@@ -672,11 +672,56 @@ end
 -------------------------
 -- temporary pathutils --
 -------------------------
+-- TODO windows can also have / as sep -> go the way of l3build and normalize path to use / instead of \
 local pathlib = {}
 do
-	local pathsep="/" -- normal string
+	-- other projects like penlight or l3build do stuff with different pathseps, according to
+	-- https://learn.microsoft.com/en-us/dotnet/standard/io/file-path-formats#canonicalize-separators
+	-- and
+	-- https://retrocomputing.stackexchange.com/questions/28344/since-when-does-windows-support-forward-slash-as-path-separator
+	-- windows since quite a while also works with / as pathsep.
+	-- Thus, this pathlib will normalize paths for having / as pathsep before working on paths
 	if os.type == "windows" then
-		pathsep="\\"
+		---Normalize path such that windows also uses /
+		---@param path string
+		---@return string
+		function pathlib.path_normalize(path)
+			return path:gsub("\\", "/")
+		end
+	else
+		---Unix already uses / as pathsep -> no-op
+		---@param path string
+		---@return string
+		function pathlib.path_normalize(path)
+			return path
+		end
+	end
+
+	-- still windows paths work with disk specifiers -> special handling required
+	if os.type == "windows" then
+		---Check if path is an absolute path
+		---@param path string
+		---@return boolean? is_abs
+		---@return string? err_msg
+		function pathlib.path_is_absolute(path)
+			local err
+			path, err = pathlib.sanitize_path(path)
+			if not path then return nil, err end
+
+			return path:sub(2,2) == ":" and path:sub(3,3) == "/"
+		end
+	else
+		---Check if path is an absolute path
+		---@param path string
+		---@return boolean? is_abs
+		---@return string? err_msg
+		function pathlib.path_is_absolute(path)
+			local err
+			path, err = pathlib.sanitize_path(path)
+			if not path then return nil, err end
+
+			return path:match("^/") and true or false
+		end
 	end
 
 	---check for weird characters in the path
@@ -717,18 +762,18 @@ do
 		return suffix
 	end
 
-	local name_pat = "^(.*)"..pathsep.."([^"..pathsep.."]+)["..pathsep.."]?$"
-
 	---@param path string
 	---@return string name
 	---@return string remainder
 	---@overload fun(name:string):nil,string?
 	function pathlib.name(path)
+		path = pathlib.path_normalize(path)
+
 		local err
 		path, err = pathlib.sanitize_path(path)
 		if not path then return nil, err end
 
-		local r, name = path:match(name_pat)
+		local r, name = path:match("^(.*)/([^/]+)/?$")
 		return name or path, name and r or nil
 	end
 
@@ -737,6 +782,8 @@ do
 	---@return string
 	---@overload fun(name:string, path:string):nil,string?
 	function pathlib.with_name(path, name)
+		path = pathlib.path_normalize(path)
+
 		local err
 		name, err = pathlib.sanitize_name(name)
 		if not name then return nil, err end
@@ -745,7 +792,7 @@ do
 		if not n then return nil, r end
 
 		if r then
-			return r..pathsep..name
+			return r.."/"..name
 		end
 		return name
 	end
@@ -755,6 +802,8 @@ do
 	---@return string remainder
 	---@overload fun(path:string):nil,string?
 	function pathlib.suffix(path)
+		path = pathlib.path_normalize(path)
+
 		local err
 		path, err = pathlib.sanitize_path(path)
 		if not path then return nil, err end
@@ -772,6 +821,8 @@ do
 	---@return string
 	---@overload fun(path:string, suffix:string):nil,string?
 	function pathlib.with_suffix(path, suffix)
+		path = pathlib.path_normalize(path)
+
 		local err
 		suffix, err = pathlib.sanitize_suffix(suffix)
 		if not suffix then return nil, err end
@@ -780,6 +831,36 @@ do
 		if not s then return nil, r end
 
 		return r.."."..suffix
+	end
+
+	function pathlib.join(path, ...)
+		if not path then return "" end
+
+		path = pathlib.path_normalize(path)
+
+		local err
+		path, err = pathlib.sanitize_path(path)
+		if not path then return nil, err end
+
+		local r, err = pathlib.join(...)
+		if not r then return nil, err end
+
+		if r == "" then return path end
+
+		local p_sep = path:sub(-1,-1) == "/"
+		local r_sep = r:sub(1,1) == "/"
+
+		-- avoid duplicated pathseps
+		if p_sep and r_sep then
+			-- remove one of the /
+			return path..r:sub(2)
+		elseif p_sep or r_sep then
+			-- no new / needed
+			return path..r
+		else
+			-- no / yet present
+			return path.."/"..r
+		end
 	end
 end
 
