@@ -293,7 +293,7 @@ do
 		pdfe.close(pdf)
 
 		table.sort(succ)
-		table.sort(failed, function(a,b) return a.i.page < b.i.page end)
+		table.sort(failed, function(a,b) return a.page.page < b.page.page end)
 		return succ, failed, pdf_version
 	end
 end
@@ -1124,6 +1124,7 @@ local function main(args)
 
 	-- infer the path to the pdf file
 	args.pdf = kpse.find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
+
 	log_assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
 	log_assert(lfs.isfile(args.pdf), ".pdf file was not found")
 
@@ -1153,14 +1154,21 @@ local function main(args)
 
 	for _, p in ipairs(failed) do
 		if p.reason == "dimension" then
-			logging:warn(([[I refuse to extract page %d from '%d' 
-because its size is not what I expected]]):format(p.i.page, args.pdf))
+			logging:warn(([[I refuse to extract page %d from '%s' 
+because its size is not what I expected]]):format(p.page.page, args.pdf))
 		elseif p.reason == "not found" then
-			logging:warn(([[I refuse to extract page %d from '%d' 
-that page was not found in the pdf file]]):format(p.i.page, args.pdf))
+			logging:warn(([[I refuse to extract page %d from '%s' 
+that page was not found in the pdf file]]):format(p.page.page, args.pdf))
 		else
 			log_error("Internal error: Unknown dimension-check-fail-reason: "..(p.reason or ""))
 		end
+	end
+
+	if #req_pages == 0 then
+		-- nothing to be processed -> terminate
+		logging:info("No externs found that need processing")
+		logging:close()
+		exit.succ()
 	end
 
 	-----------------------------------------------------------------------
@@ -1213,7 +1221,12 @@ if STAGE == "production" then
 		mmz = nil,
 	}
 
-	local args = parse_args(arg, defaults)
+	local args, err = parse_args(arg, defaults)
+	if not args then
+		print(err)
+		exit.error()
+	end
+
 	logging:set_args(args)
 	main(args)
 elseif STAGE == "LIBRARY" then
