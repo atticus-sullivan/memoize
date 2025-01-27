@@ -864,7 +864,7 @@ For details, see the man page or the Memoize documentation.]])
 			elseif a == "k" or a == "keep" then
 				args.keep = true
 
-			elseif a == "f" or a == "format" then
+			elseif a == "F" or a == "format" then
 				if len < i+1 then return nil, ("argument f/format needs an argument") end
 				args.format = as[i+1]
 				if not formats[args.format] then
