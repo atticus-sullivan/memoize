@@ -104,7 +104,7 @@ do
 		if kpse.out_name_ok_silent_extended(name) and kpse.in_name_ok_silent_extended(name) then
 			return lfs.mkdir(name)
 		else
-			return nil, ("Mkdir '%s' not permitted"):format(name)
+			return nil, ("mkdir '%s' not permitted"):format(name)
 		end
 	end
 end
