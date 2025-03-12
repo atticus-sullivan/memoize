@@ -141,7 +141,9 @@ do
 	---@return string? error message
 	mv = function(src, dst)
 		if not kpse.in_name_ok_silent_extended(src) then
-			return nil, ("Moving from '%s' not permitted."):format(src)
+			return nil, ("Moving (copy) from '%s' not permitted."):format(src)
+		elseif not kpse.out_name_ok_silent_extended(src) then
+			return nil, ("Moving (delete) from '%s' not permitted."):format(src)
 		elseif not kpse.out_name_ok_silent_extended(dst) then
 			return nil, ("Moving to '%s' not permitted."):format(dst)
 		else
