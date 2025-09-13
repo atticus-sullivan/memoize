@@ -1,0 +1,5 @@
+mmz
+*.log
+*.aux
+*.pdf
+def.lua
