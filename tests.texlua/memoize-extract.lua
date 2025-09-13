@@ -56,7 +56,6 @@ STAGE = STAGE == "testing" and "testing" or "production"
 ---------------------------------------------------------------------
 -- some functions also used inside the security relevant functions --
 -- -> need to be defined beforehand                                --
--- TODO could also use "forward declarations"                      --
 ---------------------------------------------------------------------
 
 ---@param bp number
@@ -99,8 +98,9 @@ do
 			return true
 		end
 
-		-- TODO https://gitlab.lisn.upsaclay.fr/texlive/luatex/-/blob/master/source/texk/web2c/luatexdir/lua/luatex-core.lua#L269
+		-- from https://gitlab.lisn.upsaclay.fr/texlive/luatex/-/blob/master/source/texk/web2c/luatexdir/lua/luatex-core.lua#L269
 		-- why also checking for `in`? isn't mkdir only about output?
+		-- -> decided to keep both checks just in case
 		if kpse.out_name_ok_silent_extended(name) and kpse.in_name_ok_silent_extended(name) then
 			return lfs.mkdir(name)
 		else
@@ -240,9 +240,6 @@ do
 end
 
 -- restricted function defined here
--- TODO do we really consider this a restricted function? (if we consider pdfe
--- not security relevant, we can allow it for the normal part and move this
--- function to the normal part)
 local check_dimensions
 do
 	-- safe the functions/libraries needed in this restricted area
