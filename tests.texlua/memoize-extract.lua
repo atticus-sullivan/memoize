@@ -571,6 +571,37 @@ end
 -- setup kpse
 kpse.set_program_name("texlua", "memoize-extract.lua")
 
+local find_in
+do
+	local texmf_output_directory = kpse.var_value("TEXMF_OUTPUT_DIRECTORY")
+	local texmfoutput            = kpse.var_value("TEXMFOUTPUT")
+
+	---@param fname string
+	---@return string?
+	---@return string? -- error
+	find_in = function(fname)
+		local abs, err = pathlib.path_is_absolute(fname)
+		if abs == nil then return nil, err end
+		if abs then return fname end
+
+		if texmf_output_directory then
+			local p, err = pathutil.join(texmf_output_directory, fname)
+			if not p then return nil, err end
+			if kpse.in_name_ok_silent_extended(p) then return p end
+		end
+		if not texmf_output_directory then
+			if kpse.in_name_ok_silent_extended(fname) then return fname end
+		end
+		if texmfoutput then
+			local p, err = pathutil.join(texmfoutput, fname)
+			if not p then return nil, err end
+			if kpse.in_name_ok_silent_extended(p) then return p end
+		end
+
+		return fname
+	end
+end
+
 local find_out
 do
 	local texmf_output_directory = kpse.var_value("TEXMF_OUTPUT_DIRECTORY")
@@ -589,15 +620,15 @@ do
 			local p, err = pathutil.join(texmf_output_directory, fname)
 			if not p then return nil, err end
 			texmf_od = p
-			if kpse.in_name_ok_silent_extended(p) then return p end
+			if kpse.out_name_ok_silent_extended(p) then return p end
 		end
 		if not texmf_output_directory then
-			if kpse.in_name_ok_silent_extended(fname) then return fname end
+			if kpse.out_name_ok_silent_extended(fname) then return fname end
 		end
 		if texmfoutput then
 			local p, err = pathutil.join(texmfoutput, fname)
 			if not p then return nil, err end
-			if kpse.in_name_ok_silent_extended(p) then return p end
+			if kpse.out_name_ok_silent_extended(p) then return p end
 		end
 
 		return texmf_od or fname
@@ -1035,7 +1066,7 @@ local function parse_mmz(mmz_lines, force, keep)
 		-- local succ, err
 
 		-- match against NewExtern first as this is the most common case
-		continue, err = handle_mmz_new_extern(line, current_prefix, pages, force, function(c, cc) return kpse.find_file(c) and kpse.find_file(cc) end, line_tab)
+		continue, err = handle_mmz_new_extern(line, current_prefix, pages, force, function(c, cc) return find_in(c) and find_in(cc) end, line_tab)
 		if continue == nil then return nil, err end
 		if continue then goto continue end
 
@@ -1122,13 +1153,13 @@ local function main(args)
 	end
 
 	-- infer the path to the pdf file
-	args.pdf = kpse.find_file(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
+	args.pdf = find_in(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
 
 	log_assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
 	log_assert(lfs.isfile(args.pdf), ".pdf file was not found")
 
 	-- collect data from file
-	local mmz = kpse.find_file(args.mmz, true)
+	local mmz = find_in(args.mmz, true)
 	local pages, new_mmz, gs_prefix, dirs_to_make = parse_mmz(io_lines(mmz), args.force, args.keep)
 	-- check if parsing has returned an error
 	log_assert(pages ~= nil, new_mmz)
