@@ -214,12 +214,21 @@ do
 		-- page number in the original document. If you chose (for example) to process
 		-- even pages by using -sPageList=even, then the output of -sOutputFile=out%d.png
 		-- would still be out1.png, out2.png, out3.png etc.
-		local cmd = ([[rungs -dSAFER -sDEVICE=pdfwrite -dNOPAUSE -dQUIET -dBATCH -dAutoRotatePages=/None -dCompatibilityLevel="%s" -sPageList="%s" -sOutputFile="%s" "%s"]]):format(
-			pdf_version,
-			table.concat(pages, ","),
-			out_pat,
-			src_pdf
-		)
+		local rungs_path = os.selfdir .. "/rungs" .. (os.type == "windows" and ".exe" or "")
+		local cmd = {
+			rungs_path,
+			"-dSAFER",
+			"-sDEVICE=pdfwrite",
+			"-dNOPAUSE",
+			"-dQUIET",
+			"-dBATCH",
+			"-dAutoRotatePages=/None",
+			"-dCompatibilityLevel=\"".. pdf_version .."\"",
+			"-sPageList=\"".. table.concat(pages, ",") .."\"",
+			"-sOutputFile=\"".. out_pat .."\"",
+			"\"".. src_pdf .."\"",
+		}
+
 		local succ, err = os_spawn(cmd)
 
 		-- removes generated files (in case they still exist)
