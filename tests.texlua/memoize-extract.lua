@@ -171,6 +171,23 @@ do
 	end
 end
 
+local pdfe_open
+do
+	local _pdfe_open = pdfe.open
+
+	---safely open a pdf file with the pdfe library, other functions of that library are exposed directly
+	---@param path string
+	---@return pdfe.Document
+	---@return string? error message
+	pdfe_open = function(path)
+		if kpse.in_name_ok_silent_extended(path) then
+			return _pdfe_open(path)
+		else
+			return nil, ("Opening (read) '%s' not permitted"):format(path)
+		end
+	end
+end
+
 -----------------------------------------
 -- security relevant functions go here --
 --       more complex functions        --
@@ -248,64 +265,6 @@ do
 	end
 end
 
--- restricted function defined here
-local check_dimensions
-do
-	-- safe the functions/libraries needed in this restricted area
-	local pdfe = pdfe
-	-- this is not inside the function but the startup code -> can error here
-	if not pdfe then error("pdfe library is not available. This script needs to be executed with texlua.") end
-
-	---check the dimensions of the pages in `src_pdf` specified in `page_dimensions`. Reports back which dimensions match (with `tolerance`) an which don't
-	---@param src_pdf string
-	---@param page_dimensions table
-	---@param tolerance number
-	---@param force boolean
-	---@return integer[] matching_pages
-	---@return integer[] failed_pages
-	---@return string pdf_version
-	---@overload fun(src_pdf:string, page_dimensions:table, tolerance:number, force:boolean): nil, string?, nil
-	check_dimensions = function(src_pdf, page_dimensions, tolerance, force)
-		local pdf
-		if kpse.in_name_ok_silent_extended(src_pdf) then
-			pdf = pdfe.open(src_pdf)
-		else
-			return nil, ("Opening %s not permitted."):format(src_pdf)
-		end
-
-		-- collect which pages succeded the dimension check
-		local succ = {}
-		-- collect which pages failed the dimension check
-		local failed = {}
-		for _, i in ipairs(page_dimensions) do
-			local p = i.page
-			local page = pdfe.getpage(pdf, p)
-			if not page then
-				-- page not found -> skip it
-				table.insert(failed, {page=i, reason="not found"})
-			else
-				local mediabox = pdfe.getbox(page, "MediaBox")
-				local w = bp2pt(mediabox[3] - mediabox[1])
-				local h = bp2pt(mediabox[4] - mediabox[2])
-				if math.abs(w - i.width) > tolerance or math.abs(h - i.height) > tolerance and not force then
-					table.insert(failed, {page=i, reason="dimension", real_width=w, real_height=h})
-				else
-					table.insert(succ, p)
-				end
-			end
-		end
-
-		local v_major, v_minor = pdfe.getversion(pdf)
-		local pdf_version = ("%d.%d"):format(v_major, v_minor)
-
-		pdfe.close(pdf)
-
-		table.sort(succ)
-		table.sort(failed, function(a,b) return a.page.page < b.page.page end)
-		return succ, failed, pdf_version
-	end
-end
-
 -- restrict the complete rest of the script by undefining security relevant libraries
 -- this defines an allow-list what functions of these libraries still should be accessible
 local env = {
@@ -324,6 +283,12 @@ local env = {
 	-- luatex specific libraries
 	lfs      = {isfile=lfs.isfile},
 	kpse     = kpse,
+	pdfe = {
+		getpage    = pdfe.getpage,
+		getbox     = pdfe.getbox,
+		getversion = pdfe.getversion,
+		close      = pdfe.close,
+	},
 
 	-- memoize-extract specific global
 	STAGE    = STAGE,
@@ -576,6 +541,58 @@ end
 -----------------
 -- normal code --
 -----------------
+
+local check_dimensions
+do
+	---check the dimensions of the pages in `src_pdf` specified in `page_dimensions`. Reports back which dimensions match (with `tolerance`) an which don't
+	---@param src_pdf string
+	---@param page_dimensions table
+	---@param tolerance number
+	---@param force boolean
+	---@return integer[] matching_pages
+	---@return integer[] failed_pages
+	---@return string pdf_version
+	---@overload fun(src_pdf:string, page_dimensions:table, tolerance:number, force:boolean): nil, string?, nil
+	check_dimensions = function(src_pdf, page_dimensions, tolerance, force)
+		local pdf
+		if kpse.in_name_ok_silent_extended(src_pdf) then
+			pdf = pdfe_open(src_pdf)
+		else
+			return nil, ("Opening %s not permitted."):format(src_pdf)
+		end
+
+		-- collect which pages succeded the dimension check
+		local succ = {}
+		-- collect which pages failed the dimension check
+		local failed = {}
+		for _, i in ipairs(page_dimensions) do
+			local p = i.page
+			local page = pdfe.getpage(pdf, p)
+			if not page then
+				-- page not found -> skip it
+				table.insert(failed, {page=i, reason="not found"})
+			else
+				local mediabox = pdfe.getbox(page, "MediaBox")
+				local w = bp2pt(mediabox[3] - mediabox[1])
+				local h = bp2pt(mediabox[4] - mediabox[2])
+				if math.abs(w - i.width) > tolerance or math.abs(h - i.height) > tolerance and not force then
+					table.insert(failed, {page=i, reason="dimension", real_width=w, real_height=h})
+				else
+					table.insert(succ, p)
+				end
+			end
+		end
+
+		local v_major, v_minor = pdfe.getversion(pdf)
+		local pdf_version = ("%d.%d"):format(v_major, v_minor)
+
+		pdfe.close(pdf)
+
+		table.sort(succ)
+		table.sort(failed, function(a,b) return a.page.page < b.page.page end)
+		return succ, failed, pdf_version
+	end
+end
 
 -- setup kpse
 kpse.set_program_name("texlua", "memoize-extract.lua")
