@@ -374,6 +374,8 @@ do
 	-- still windows paths work with disk specifiers -> special handling required
 	if os.type == "windows" then
 		---Check if path is an absolute path
+		---NOTE: Windows UNC paths aren't supported
+		---(see https://learn.microsoft.com/en-us/dotnet/standard/io/file-path-formats#unc-paths)
 		---@param path string
 		---@return boolean? is_abs
 		---@return string? err_msg
