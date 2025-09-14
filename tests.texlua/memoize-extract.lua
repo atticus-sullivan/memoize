@@ -987,6 +987,7 @@ end
 ---@return boolean? continue signals whether the line was identified as new_extern
 ---@return string? err_msg
 local function handle_mmz_new_extern(line, current_prefix, pages, force, check_for_memo, line_tab)
+	-- TODO maybe lpeg would be better suited for parsing this
 	local extern_path, page_n, w, h = line:match("\\mmzNewExtern *{(.*)}{(%d+)}{([0-9.]*)pt}{([0-9.]*)pt}")
 
 	if extern_path and page_n and w and h then
