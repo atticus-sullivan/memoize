@@ -237,7 +237,7 @@ do
 				local fn = out_pat:format(i)
 				-- this is cleanup -> fail silently, not throwing errors
 				if kpse.out_name_ok_silent_extended(fn) then
-					if lfs.isfile(fn) then
+					if lfs.isfile(fn) and fn:match("%.tmp") then
 						return os_rm(fn)
 					end
 				end
