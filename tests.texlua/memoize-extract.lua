@@ -214,7 +214,7 @@ do
 		-- page number in the original document. If you chose (for example) to process
 		-- even pages by using -sPageList=even, then the output of -sOutputFile=out%d.png
 		-- would still be out1.png, out2.png, out3.png etc.
-		local rungs_path = os.selfdir .. "/rungs" .. (os.type == "windows" and ".exe" or "")
+		local rungs_path = (os.selfdir or kpse.var_value("SELFAUTOLOC")) .. "/rungs" .. (os.type == "windows" and ".exe" or "")
 		local cmd = {
 			rungs_path,
 			"-dSAFER",
@@ -223,10 +223,10 @@ do
 			"-dQUIET",
 			"-dBATCH",
 			"-dAutoRotatePages=/None",
-			"-dCompatibilityLevel=\"".. pdf_version .."\"",
-			"-sPageList=\"".. table.concat(pages, ",") .."\"",
-			"-sOutputFile=\"".. out_pat .."\"",
-			"\"".. src_pdf .."\"",
+			"-dCompatibilityLevel=".. pdf_version,
+			"-sPageList=".. table.concat(pages, ","),
+			"-sOutputFile=".. out_pat,
+			src_pdf,
 		}
 
 		local succ, err = os_spawn(cmd)
