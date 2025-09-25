@@ -396,6 +396,10 @@ do
 			path, err = pathlib.sanitize_path(path)
 			if not path then return nil, err end
 
+			if path:match("/%.%.+/") then
+				return false
+			end
+
 			return path:match("^/") and true or false
 		end
 	end
