@@ -184,7 +184,7 @@ describe("memoize-extract.lua", function()
 	describe("parse_args", function()
 		it("should parse valid arguments with defaults", function()
 			local defaults = {pdf = nil, format = "plain", quiet = false}
-			local args = extract.parse_args({"-P", "output.pdf", "-f", "latex", "mmz"}, defaults)
+			local args, err = extract.parse_args({"-P", "output.pdf", "-F", "latex", "mmz"}, defaults)
 			expect.equal(args, {
 				pdf    = "output.pdf",
 				format = "latex",
@@ -205,7 +205,7 @@ describe("memoize-extract.lua", function()
 		it("should raise an error for invalid format", function()
 			local defaults = {}
 
-			local a, err = extract.parse_args({"-f", "invalidformat", "mmz"}, defaults)
+			local a, err = extract.parse_args({"-F", "invalidformat", "mmz"}, defaults)
 
 			expect.not_exist(a)
 			expect.equal(err, "invalid format passed")
@@ -244,7 +244,7 @@ describe("memoize-extract.lua", function()
 		it("should fail if no mmz is given", function()
 			local defaults = {pdf = nil, format = "plain", quiet = false}
 
-			local a, err = extract.parse_args({"-P", "output.pdf", "-f", "latex", "-p"}, defaults)
+			local a, err = extract.parse_args({"-P", "output.pdf", "-F", "latex", "-p"}, defaults)
 
 			expect.not_exist(a)
 			expect.equal(err, "wrong number of arguments passed, exactly one positional needs to be given")
