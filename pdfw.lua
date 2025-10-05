@@ -105,7 +105,7 @@ do --array & dictionary
    local function is_legal_dictionary_key(key)
       return type(key) == "string"
    end
-
+      
    local mt_index = function(tbl, key, pdfe_doc, legal_index_f)
       assert(legal_index_f(key))
       value = tbl[key]
@@ -189,21 +189,8 @@ do --reference
    local reference_resolutions = {}
    setmetatable(reference_resolutions, { __mode = 'k' } )
 
-   local metatable_pdfw_reference_to_pdfe_object = {
-      pdfw = "reference", __index = ref_index_error, __newindex = ref_index_error,
-      __call = function(obj)
-	 local referenced_pdfe_obj = rawget(obj, 'referenced_pdfe_obj')
-	 return pdfw.from_pdfe_triplet(
-	    rawget(obj, 'pdfe_doc'),
-	    pdfe.type(referenced_pdfe_obj),
-	    referenced_pdfe_obj,
-	    rawget(obj, 'referenced_pdfe_obj_detail')
-	 )
-      end,
-   }
-
    local metatable_pdfw_reference = {
-      pdfw = "reference", __index = ref_index_error, __newindex = ref_index_error,
+      pdfw = "pdfw_reference", __index = ref_index_error, __newindex = ref_index_error,
       __call = function(obj)
 	 return rawget(obj, 'referenced_pdfw_obj')
       end,
@@ -217,23 +204,27 @@ do --reference
    end
 
    local metatable_pdfe_reference = {
-      pdfw = "reference", __index = ref_index_error, __newindex = ref_index_error,
-      __call = function(obj)
-	 local pdfe_doc = rawget(obj,'pdfe_doc')
-	 local reference_resolutions_for_doc = reference_resolutions[pdfe_doc]
-	 if not reference_resolutions_for_doc then
-	    reference_resolutions_for_doc = {}
-	    reference_resolutions[pdfe_doc] = reference_resolutions_for_doc
+      pdfw = "pdfe_reference", __index = ref_index_error, __newindex = ref_index_error,
+      __call = function(obj, id)
+	 if id then
+	    return rawget(obj, 'referenced_pdfe_obj_id')
+	 else
+	    local pdfe_doc = rawget(obj,'pdfe_doc')
+	    local reference_resolutions_for_doc = reference_resolutions[pdfe_doc]
+	    if not reference_resolutions_for_doc then
+	       reference_resolutions_for_doc = {}
+	       reference_resolutions[pdfe_doc] = reference_resolutions_for_doc
+	    end
+	    local referenced_pdfe_obj_id = rawget(obj, 'referenced_pdfe_obj_id')
+	    local reference_resolution = reference_resolutions_for_doc[referenced_pdfe_obj_id]
+	    if not reference_resolution then
+	       local pdfe_reference = rawget(obj, 'pdfe_reference')
+	       reference_resolution = pdfw.from_pdfe_triplet(
+		  pdfe_doc, pdfe.getfromreference(pdfe_reference))
+	       reference_resolutions_for_doc[referenced_pdfe_obj_id] = reference_resolution
+	    end
+	    return reference_resolution
 	 end
-	 local referenced_pdfe_obj_id = rawget(obj, 'referenced_pdfe_obj_id')
-	 local reference_resolution = reference_resolutions_for_doc[referenced_pdfe_obj_id]
-	 if not reference_resolution then
-	    local pdfe_reference = rawget(obj, 'pdfe_reference')
-	    reference_resolution = pdfw.from_pdfe_triplet(
-	       pdfe_doc, pdfe.getfromreference(pdfe_reference))
-	    reference_resolutions_for_doc[referenced_pdfe_obj_id] = reference_resolution
-	 end
-	 return reference_resolution
       end,
    }
 
@@ -348,7 +339,16 @@ do --linearize
 	 }
 	 return table.concat(chunks, "\n")
       end,
-      reference = function(obj, pdf)
+      pdfe_reference = function(obj, pdf)
+	 if pdf.updating then
+	    return obj(true) .. ' 0 R' --obj(true) --> object id
+	 else
+	    local referenced_pdfw_object = obj()
+	    pdfw.linearize(pdf, referenced_pdfw_object, true)
+	    return pdf.objects[referenced_pdfw_object] .. ' 0 R'
+	 end
+      end,
+      pdfw_reference = function(obj, pdf)
 	 local referenced_pdfw_object = obj()
 	 pdfw.linearize(pdf, referenced_pdfw_object, true)
 	 return pdf.objects[referenced_pdfw_object] .. ' 0 R'
@@ -381,9 +381,6 @@ function pdfw.new(from)
       error("You can only create a PDF from a pdfe document or a trailer dictionary", 2)
    end
    local pdf = {
-      Catalog = trailer.Root(),
-      Pages = trailer.Root().Pages,
-      Info = trailer.Info,
       trailer = trailer,
       major = 1,
       minor = 4,
@@ -397,7 +394,7 @@ function pdfw.from_pdfe_page(source_pdfe_doc, page_n)
 end
 
 function pdfw.append_page(pdf, source_pdfe_doc, page_n)
-   local Pages = pdf.Pages()
+   local Pages = pdf.trailer.Root().Pages()
    new_page = pdfw.from_pdfe_page(source_pdfe_doc, page_n)
    table.insert(Pages.Kids, pdfw.reference(new_page))
    Pages.Count = Pages.Count + 1
@@ -452,6 +449,43 @@ function pdfw.save(pdf, filename)
    pdf.fh:close()
    
    pdf.objects, pdf.max_id, pdf.xref, pdf.fh, pdf.trailer.Size = nil, nil, nil, nil, nil
+end
+
+function pdfw.update(pdf, filename)
+   local fh = io.open(filename, 'rb')
+   fh:seek("end", -40)
+   local prev = fh:read("a")
+   fh:close()
+   _,_,prev = prev:find('startxref%s+(%d+)%s+%%%%EOF')
+   
+   pdf.updating = true
+   pdf.objects = {}
+   pdf.max_id = pdf.trailer.Size
+   pdf.xref = {}
+   pdf.fh = io.open(filename, 'a+b')
+   pdf.fh:seek("end")
+   
+   pdfw.linearize(pdf, pdf.trailer, false, true)
+
+   local startxref = pdf.fh:seek()
+   pdf.fh:write(
+      'xref\n0 1\n0000000000 65535 f \n',
+      trailer.Size + 1, ' ', pdf.max_id - pdf.trailer.Size, "\n"
+   )
+   for id = pdf.trailer.Size + 1, pdf.max_id  do
+      pos = pdf.xref[id]
+      pdf.fh:write(string.format("%010d", pos), ' 00000 n \n')
+   end
+   
+   pdf.trailer.Size = pdf.max_id + 1
+   pdf.trailer.Prev = prev
+   pdf.fh:write("trailer\n", pdfw.linearize(pdf, pdf.trailer, false, true), "\n")
+   
+   pdf.fh:write("startxref\n", startxref, "\n")
+   
+   pdf.fh:write("%%EOF\n")
+   pdf.fh:close()   
+   pdf.updating = nil
 end
 
 return pdfw
