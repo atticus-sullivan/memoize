@@ -48,11 +48,60 @@ end
 
 local pdfw = {}
 
+local function index_error() error("Invalid index", 2) end
+local function identity(obj) return obj end
+local function obj_value_tostring(obj) return tostring(obj.value) end
+
 --Assigning nil to a table removes the entry, so we need this to put a null
 --value into a dict or array, don't we?
+
 do --null
-   local metatable_null = { pdfw = 'null', __tostring = function() return 'null' end }
+   local metatable_null = {
+      pdfw = 'null',
+      __index = index_error, __newindex = index_error,
+      __tostring = function() return 'null' end,
+      __call = identity,
+   }
    function pdfw.null(value) return setmetatable({}, metatable_null) end
+end
+
+--We only define pdfw.boolean/integer/float for the unlikely situation of an
+--indirect object.
+
+do --boolean
+   local metatable_boolean = {
+      pdfw = 'boolean',
+      __index = index_error, __newindex = index_error,
+      __call = identity,
+      __tostring = obj_value_tostring,
+   }
+   function pdfw.boolean(value)
+      return setmetatable({value = value and true or false}, metatable_boolean)
+   end
+end
+
+do --integer
+   local metatable_integer = {
+      pdfw = 'integer',
+      __index = index_error, __newindex = index_error,
+      __call = identity,
+      __tostring = obj_value_tostring,
+   }
+   function pdfw.integer(value)
+      return setmetatable({value = tonumber(value)}, metatable_integer)
+   end
+end
+
+do --float
+   local metatable_float = {
+      pdfw = 'float',
+      __index = index_error, __newindex = index_error,
+      __call = identity,
+      __tostring = obj_value_tostring,
+   }
+   function pdfw.float(value)
+      return setmetatable({value = tonumber(value)}, metatable_float)
+   end
 end
 
 do --name
@@ -61,6 +110,8 @@ do --name
       __tostring = function(obj)
 	 return '/' .. obj.value:gsub('/', '#2F')
       end,
+      __call = identity,
+      __index = index_error, __newindex = index_error,
    }
    function pdfw.name(value)
       return setmetatable({value = value}, metatable_name)
@@ -86,6 +137,8 @@ do --string
 	    hex_a
 	 )
       end,
+      __index = index_error, __newindex = index_error,
+      __call = identity,
    }
    function pdfw.string(value, hex)
       return setmetatable({value = value, hex = hex}, metatable_string)
@@ -94,18 +147,15 @@ end
 
 
 do --array & dictionary
-   
+
    local metatable_pdfe_triplet = {}
    local function is_pdfe_triplet(obj)
       return getmetatable(obj) == metatable_pdfe_triplet
    end
-   local function is_legal_array_key(key)
-      return math.type(key) == "integer" and key > 0
-   end
-   local function is_legal_dictionary_key(key)
-      return type(key) == "string"
-   end
-      
+   
+   --The situations for array and dictionary are very similar, so we define
+   --parametrized metamethods.
+   
    local mt_index = function(tbl, key, pdfe_doc, legal_index_f)
       assert(legal_index_f(key))
       value = tbl[key]
@@ -130,6 +180,13 @@ do --array & dictionary
       return pairs_f(tbl)
    end
 
+   local function is_legal_array_key(key)
+      return math.type(key) == "integer" and key > 0
+   end
+   local function is_legal_dictionary_key(key)
+      return type(key) == "string"
+   end
+   
    function pdfw.from_pdfe_array(pdfe_doc, pdfe_obj)
       assert(pdfe.type(pdfe_doc) == 'pdfe' and pdfe.type(pdfe_obj) == 'pdfe.array')
       local tbl = pdfe.arraytotable(pdfe_obj)
@@ -146,6 +203,7 @@ do --array & dictionary
 	    __pairs = function(t)
 	       return mt_pairs(tbl,pdfe_doc,ipairs) end,
 	    __len = function(t) return #tbl end,
+	    __call = identity,
 	 }
       )
    end
@@ -164,6 +222,7 @@ do --array & dictionary
 		 mt_newindex(tbl,k,v,is_legal_dictionary_key) end,
 	   __pairs = function(t)
 	      return mt_pairs(tbl,pdfe_doc,pairs) end,
+	    __call = identity,
 	 }
       )
    end
@@ -171,68 +230,81 @@ do --array & dictionary
 end --array & dictionary
 
 do --stream
-   metatable_stream = { pdfw = 'stream' }
+   
+   metatable_stream = {
+      pdfw = 'stream',
+      __index = index_error, __newindex = index_error,
+   }
+   
    function pdfw.from_pdfe_stream(pdfe_doc, stream, dictionary)
       return setmetatable(
-	 { stream = stream, dictionary = dictionary, pdfe_doc = pdfe_doc },
+	 { pdfe_doc = pdfe_doc, stream = stream, dictionary = dictionary },
 	 metatable_stream
       )
    end
+   
 end
 
 do --reference
 
    local function ref_index_error()
-      error("Cannot index a reference! Did you forget to call the reference to resolve it?", 2)
+      error("Cannot index a reference! \z
+             Did you forget to call the reference to resolve it?", 2)
    end
-
+   local mt_call_what_error = "The argument to the call of a reference \z
+                               should be 'object' or 'id'"
+   
    local reference_resolutions = {}
    setmetatable(reference_resolutions, { __mode = 'k' } )
 
-   local metatable_pdfw_reference = {
-      pdfw = "pdfw_reference", __index = ref_index_error, __newindex = ref_index_error,
-      __call = function(obj)
-	 return rawget(obj, 'referenced_pdfw_obj')
-      end,
-   }
-
-   function pdfw.reference(pdfw_obj)
-      return setmetatable(
-	 { referenced_pdfw_obj = pdfw_obj },
-	 metatable_pdfw_reference
-      )
+   local mt_call = function(obj, what, referenced_pdfw_obj)
+      what = what or 'object'
+      if what == 'object' then
+	 return referenced_pdfw_obj
+      elseif what == 'id' then
+	 return nil
+      else
+	 error(mt_call_what_error, 2)
+      end
+   end
+   
+   function pdfw.reference(referenced_pdfw_obj)
+      return setmetatable({}, {
+	    pdfw = "pdfw_reference",
+	    __index = ref_index_error, __newindex = ref_index_error,
+	    __call = function(obj) return mt_call(obj, what, referenced_pdfw_obj) end,
+      })
    end
 
-   local metatable_pdfe_reference = {
-      pdfw = "pdfe_reference", __index = ref_index_error, __newindex = ref_index_error,
-      __call = function(obj, id)
-	 if id then
-	    return rawget(obj, 'referenced_pdfe_obj_id')
-	 else
-	    local pdfe_doc = rawget(obj,'pdfe_doc')
-	    local reference_resolutions_for_doc = reference_resolutions[pdfe_doc]
-	    if not reference_resolutions_for_doc then
-	       reference_resolutions_for_doc = {}
-	       reference_resolutions[pdfe_doc] = reference_resolutions_for_doc
-	    end
-	    local referenced_pdfe_obj_id = rawget(obj, 'referenced_pdfe_obj_id')
-	    local reference_resolution = reference_resolutions_for_doc[referenced_pdfe_obj_id]
-	    if not reference_resolution then
-	       local pdfe_reference = rawget(obj, 'pdfe_reference')
-	       reference_resolution = pdfw.from_pdfe_triplet(
-		  pdfe_doc, pdfe.getfromreference(pdfe_reference))
-	       reference_resolutions_for_doc[referenced_pdfe_obj_id] = reference_resolution
-	    end
-	    return reference_resolution
+   local function mt_call(obj, what, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
+      what = what or 'object'
+      if what == 'id' then
+	 return referenced_pdfe_obj_id
+      elseif what == 'object' then
+	 local reference_resolutions_for_doc = reference_resolutions[pdfe_doc]
+	 if not reference_resolutions_for_doc then
+	    reference_resolutions_for_doc = {}
+	    reference_resolutions[pdfe_doc] = reference_resolutions_for_doc
 	 end
-      end,
-   }
+	 local reference_resolution = reference_resolutions_for_doc[referenced_pdfe_obj_id]
+	 if not reference_resolution then
+	    reference_resolution = pdfw.from_pdfe_triplet(
+	       pdfe_doc, pdfe.getfromreference(pdfe_reference))
+	    reference_resolutions_for_doc[referenced_pdfe_obj_id] = reference_resolution
+	 end
+	 return reference_resolution
+      else
+	 error(mt_call_what_error, 2)
+      end
+   end
 
    function pdfw.from_pdfe_reference(pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
-      return setmetatable({ pdfe_doc = pdfe_doc,
-			    pdfe_reference = pdfe_reference,
-			    referenced_pdfe_obj_id = referenced_pdfe_obj_id },
-	 metatable_pdfe_reference)
+      return setmetatable({}, {
+	    pdfw = "pdfe_reference",
+	    __index = ref_index_error, __newindex = ref_index_error,
+	    __call = function(obj, what) return mt_call(
+		  obj, what, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id) end,
+      })
    end
    
 end --reference
@@ -261,8 +333,7 @@ do --pdfw.from_pdfe_triplet
       end
       return f(pdfe_doc, value, detail)
    end
-
-  end
+end
 
 do --linearize
 
@@ -296,10 +367,15 @@ do --linearize
    distributor = {
       --Note the reversed order of pdf and obj in the functions below. This is so
       --that the first couple of functions below can easily receive merely obj.
-      ["nil"] = function() return 'null' end,                        --null
+      ["nil"] = function() return 'null' end, --primitive nil --> pdf null
+      null = tostring, --pdfw.null
+      --The following four are both for primitive and pdfw objects.
       boolean = tostring,
       number = tostring,
       name = tostring,
+      --Note that '/foo' will end up as a name.  This is intentional, so that
+      --names can be given simply as strings.  If you need a string that starts
+      --with a slash, use either octal \057 or wrap the string in pdfw.string.
       string = tostring,
       array = function(obj, pdf)
 	 local child_reprs = { [0] = '[' }
@@ -320,6 +396,10 @@ do --linearize
 	 child_reprs[i] = '>>'
 	 return table.concat(child_reprs, ' ', 0)
       end,
+      --A table is cast into either an array or a dictionary.  Basically, it is
+      --an array if numeric index 1 is present.  However, an empty table could
+      --be either an array or a dictionary.  We get around this by the
+      --convention that setting numeric index 0 implies that it is an array.
       table = function(obj, pdf)
 	 local r
 	 if obj[1] or obj[0] then

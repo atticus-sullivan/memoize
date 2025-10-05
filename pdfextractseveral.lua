@@ -1,8 +1,8 @@
 #!/usr/bin/env texlua
 
--- Usage: pdfextract.lua infile outfile_prefix page_number page_number ...
+-- Usage: pdfextractseveral.lua infile outfile_prefix page_number page_number ...
 
-require('pdfw')
+pdfw = require('pdfw')
 
 infile = arg[1]
 doc = pdfe.open(infile)
