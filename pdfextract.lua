@@ -2,7 +2,7 @@
 
 -- Usage: pdfextract.lua infile page_number outfile
 
-require('pdfw')
+local pdfw = require('pdfw')
 
 infile = arg[1]
 page_n = tonumber(arg[2])

@@ -1,367 +1,457 @@
 #!/usr/bin/env texlua
 
-function inspect(x, levels, indent)
-   indent = indent or ''
-   levels = levels or -1
-   local pdfw_object_status = ''
-   if pdfw.is_pdfw_object(x) then pdfw_object_status = ' (pdfw object)' end
-   print(indent .. tostring(x) .. pdfw_object_status)
-   if type(x) == 'table' then
-      _inspect_table(x, levels, indent .. '| ', {})
-   elseif pdfe.type(x) == 'pdfe.dictionary' then
-      _inspect_table(pdfe.dictionarytotable(x), levels, indent .. '| ', {})
-   elseif pdfe.type(x) == 'pdfe.array' then
-      _inspect_table(pdfe.arraytotable(x), levels, indent .. '| ', {})
-   --elseif pdfe.type(x) == 'pdfe.stream' then
-   --   _inspect_table(pdfe.arraytotable(x), levels, indent .. '| ')
+local tracing = true
+local trace, tinspect, tracein, traceout
+do
+   local tracing_indent = ''
+   trace = function(s, ...)
+      if tracing then print(tracing_indent .. s, ...) end
    end
+   tinspect = function(x, levels)
+      if tracing then inspect(x, levels, tracing_indent) end
+   end
+   tracein = function() tracing_indent = tracing_indent .. '  ' end
+   traceout = function() tracing_indent = tracing_indent:sub(1, -3) .. "" end
 end
 
-function _inspect_table(x, levels, indent, received_done)
-   -- done prevents infinite regress
-   local done = {} for k,v in pairs(received_done) do done[k]=v end
-   if levels ~= 0 and (not done or not done[x]) then
-      done[x] = true
-      for k,v in pairs(x) do
-	 local pdfw_object_status = ''
-	 if pdfw.is_pdfw_object(v) then pdfw_object_status = ' (pdfw object)' end
-	 print(indent .. tostring(k), tostring(v) .. pdfw_object_status)
-	 if type(v) == 'table' then
-	    _inspect_table(v, levels-1, indent .. '  ', done)
+do
+   local function _inspect_table(x, levels, indent, received_done)
+      -- done prevents infinite regress
+      local done = {} for k,v in pairs(received_done) do done[k]=v end
+      if levels ~= 0 and (not done or not done[x]) then
+	 done[x] = true
+	 for k,v in pairs(x) do
+	    local mt = getmetatable(v) and " meta" .. tostring(getmetatable(v)) or ''
+	    print(indent .. tostring(k), tostring(v) .. mt)
+	    if type(v) == 'table' then
+	       _inspect_table(v, levels-1, indent .. '  ', done)
+	    end
 	 end
       end
    end
-end
-
-pdfw = {}
-
---pdfw objects are tables in the same format as returned by
---pdfe.dictionarytotable and pdfe.arraytotable.
-function pdfw.object(obj_type, value, detail)
-   assert(math.type(obj_type) == 'integer' and obj_type >= 0 and obj_type <= 10)
-   obj = { obj_type, value, detail }
-   setmetatable(obj, pdfw._object_metatable)
-   return obj
-end
-function pdfw.null()                      return pdfw.object(1)                      end
-function pdfw.boolean(value)              return pdfw.object(2, value)               end
-function pdfw.integer(value)              return pdfw.object(3, value)               end
-function pdfw.float(value)                return pdfw.object(4, value)               end
-function pdfw.name(value)                 return pdfw.object(5, value)               end
-function pdfw.string(value, hex)          return pdfw.object(6, value, hex)          end
-function pdfw.array(a)       a = a or {}  return pdfw.object(7, a)                   end
-function pdfw.dictionary(d)  d = d or {}  return pdfw.object(8, d)                   end
-function pdfw.stream(stream, stream_dict) return pdfw.object(9, stream, stream_dict) end
-function pdfw.reference(referenced_obj)   return pdfw.object(10, referenced_obj)     end
---pdfw.array/dictionary: a/d argument is a table or a pdfe object; we don't
---set size of array/dict as the detail, because then we would have to update
---it when adding or removing to the array/dictionary.
-
-function pdfw.is_pdfw_object(obj)
-   return getmetatable(obj) == pdfw._object_metatable
-end
-
-pdfw._object_metatable = {
-   __index = function(table, key)
-      local f = getmetatable(table)['__indices'][key]
-      if not f then
-	 local indices_for_type = getmetatable(table)['__indices'][table.type]
-	 if indices_for_type then f = indices_for_type[key] end
+   function inspect(x, levels, indent)
+      indent = indent or ''
+      levels = levels or -1
+      local mt = getmetatable(x) and " meta" .. tostring(getmetatable(x)) or ''
+      print(indent .. tostring(x) .. mt)
+      if type(x) == 'table' then
+	 _inspect_table(x, levels, indent .. '| ', {})
+      elseif pdfe.type(x) == 'pdfe.dictionary' then
+	 _inspect_table(pdfe.dictionarytotable(x), levels, indent .. '| ', {})
+      elseif pdfe.type(x) == 'pdfe.array' then
+	 _inspect_table(pdfe.arraytotable(x), levels, indent .. '| ', {})
+	 --elseif pdfe.type(x) == 'pdfe.stream' then
+	 --   _inspect_table(pdfe.arraytotable(x), levels, indent .. '| ')
       end
-      if f then return f(table) else return rawget(table, key) end
-   end,
-   __indices = {
-      type   = function(table) return rawget(table,1) end,
-      value  = function(table) return rawget(table,2) end,
-      detail = function(table) return rawget(table,3) end,
-      [6] = { --string
-	 hex = function(table) return rawget(table,3) end,
-      },
-      [7] = { --array
-	 items = function(table)
-	    array = table.value
-	    if type(array) == 'table' then
-	       return array
-	    elseif pdfe.type(array)  == 'pdfe.array' then
-	       local t = pdfe.arraytotable(array)
-	       for i,v in ipairs(t) do
-		  setmetatable(v, pdfw._object_metatable)
-	       end
-	       return t
-	    else
-	       error("Illicit pdfw.array object value", 2)
-	    end
-	 end,
-      },
-      [8] = { --dictionary
-	 items = function(table)
-	    dict = table.value
-	    if type(dict) == 'table' then
-	       return dict
-	    elseif pdfe.type(dict)  == 'pdfe.dictionary' then
-	       t = pdfe.dictionarytotable(dict)
-	       for k,v in pairs(t) do
-		  setmetatable(v, pdfw._object_metatable)
-	       end
-	       return t
-	    else
-	       error("Illicit pdfw.dictionary object value", 2)
-	    end
-	 end,
-      },
-      [9] = { --stream (todo: editable streams)
-	 stream = function(table)
-	    s = rawget(table,2)
-	    assert(pdfe.type(s) == 'pdfe.stream')
-	    return s
-	 end,
-	 dictionary = function(table)
-	    d = rawget(table,3)
-	    if pdfe.type(d) == 'pdfe.dictionary' then
-	       return pdfw.dictionary(d)
-	    elseif pdfw.is_pdfw_object(d) and d.type == 8 then
-	       return d
-	    else
-	       error("Illicit stream dictionary", 2)
-	    end
+   end
+end
+
+local pdfw = {}
+
+--Assigning nil to a table removes the entry, so we need this to put a null
+--value into a dict or array, don't we?
+do --null
+   local metatable_null = { pdfw = 'null', __tostring = function() return 'null' end }
+   function pdfw.null(value) return setmetatable({}, metatable_null) end
+end
+
+do --name
+   local metatable_name = {
+      pdfw = 'name',
+      __tostring = function(obj)
+	 return '/' .. obj.value:gsub('/', '#2F')
+      end,
+   }
+   function pdfw.name(value)
+      return setmetatable({value = value}, metatable_name)
+   end
+end
+
+do --string
+   local metatable_string = {
+      pdfw = 'string',
+      __tostring = function(obj)
+	 return table.concat{ hex and '<' or '(', obj.value, hex and '>' or ')' }
+      end,
+      __concat = function(a,b)
+	 local hex_a = type(a) ~= 'string' and a.hex 
+	 local hex_b = type(b) ~= 'string' and b.hex
+	 if not ((hex_a and hex_b) or (not hex_a and not hex_b)) then
+	    error("Cannot concatenate a hex and a non-hex string", 2)
 	 end
-      },
-      [10] = { --reference
-	 resolve = function(table)
-	    return function(pdf)
-	       local reference_value = table.value
-	       if pdfw.is_pdfw_object(reference_value) then
-		  return reference_value
-	       elseif pdfe.type(reference_value) == 'pdfe.reference' then
-		  local pointer = tostring(reference_value)
-		  local referenced_object = pdf.reference_resolutions[pointer]
-		  if not referenced_object then
-		     referenced_object = pdfw.object(pdfe.getfromreference(reference_value))
-		     pdf.reference_resolutions[pointer] = referenced_object
-		  end
-		  return referenced_object
-	       else
-		  error("Illicit pointer in pdfw.reference", 2)
-	       end
-	    end
-	 end,
-      },
-   },
-   __newindex = function(table, key, value)
-      local f = getmetatable(table)['__newindices'][key]
-      if not f then
-	 local newindices_for_type = getmetatable(table)['__newindices'][table.type]
-	 if newindices_for_type then f = newindices_for_type[key] end
-      end
-      if f then return f(table, value) else return rawset(table, key, value) end
-   end,
-   __newindices = {
-      type   = function(table,value) return rawset(table,1,value) end,
-      value  = function(table,value) return rawset(table,2,value) end,
-      detail = function(table,value) return rawset(table,3,value) end,
-   },
-}
+	 return pdfw.string(
+	    (type(a) == 'string' and a or a.value)
+	    ..
+	    (type(b) == 'string' and b or b.value),
+	    hex_a
+	 )
+      end,
+   }
+   function pdfw.string(value, hex)
+      return setmetatable({value = value, hex = hex}, metatable_string)
+   end
+end   
 
-function pdfw.new()
-   local Pages = pdfw.dictionary({
-	 Type = pdfw.name('Pages'),
-	 Count = pdfw.integer(0),
-	 Kids = pdfw.array(),
-   })
-   local Catalog = pdfw.dictionary({
-	 Type = pdfw.name('Catalog'),
-	 Pages = pdfw.reference(Pages),
-   })
-   local Info = pdfw.dictionary({
-	 Producer = pdfw.string('pdfw'),
-   })
+
+do --array & dictionary
+   
+   local metatable_pdfe_triplet = {}
+   local function is_pdfe_triplet(obj)
+      return getmetatable(obj) == metatable_pdfe_triplet
+   end
+   local function is_legal_array_key(key)
+      return math.type(key) == "integer" and key > 0
+   end
+   local function is_legal_dictionary_key(key)
+      return type(key) == "string"
+   end
+
+   local mt_index = function(tbl, key, pdfe_doc, legal_index_f)
+      assert(legal_index_f(key))
+      value = tbl[key]
+      if is_pdfe_triplet(value) then
+	 value = pdfw.from_pdfe_triplet(pdfe_doc, table.unpack(value))
+	 tbl[key] = value
+      end
+      return value
+   end
+   
+   local mt_newindex = function(tbl, key, value, legal_index_f)
+      assert(legal_index_f(key))
+      tbl[key] = value
+   end
+   
+   local mt_pairs = function(tbl, pdfe_doc, pairs_f)
+      for key, value in pairs_f(tbl) do
+	 if is_pdfe_triplet(value) and not tbl[key] then
+	    tbl[key] = pdfw.from_pdfe_triplet(pdfe_doc, table.unpack(value))
+	 end
+      end
+      return pairs_f(tbl)
+   end
+
+   function pdfw.from_pdfe_array(pdfe_doc, pdfe_obj)
+      assert(pdfe.type(pdfe_doc) == 'pdfe' and pdfe.type(pdfe_obj) == 'pdfe.array')
+      local tbl = pdfe.arraytotable(pdfe_obj)
+      for k, pdfe_triplet in ipairs(tbl) do
+	 setmetatable(pdfe_triplet, metatable_pdfe_triplet)
+      end
+      return setmetatable({},
+	 {
+	    pdfw = "array",
+	    __index = function(t,k)
+	       return mt_index(tbl,k,pdfe_doc,is_legal_array_key) end,
+	    __newindex = function(t,k,v) 
+	       return mt_newindex(tbl,k,v,is_legal_array_key) end,
+	    __pairs = function(t)
+	       return mt_pairs(tbl,pdfe_doc,ipairs) end,
+	    __len = function(t) return #tbl end,
+	 }
+      )
+   end
+
+   function pdfw.from_pdfe_dictionary(pdfe_doc, pdfe_obj)
+      assert(pdfe.type(pdfe_doc) == 'pdfe' and pdfe.type(pdfe_obj) == 'pdfe.dictionary')
+      local tbl = pdfe.dictionarytotable(pdfe_obj)
+      for k, pdfe_triplet in pairs(tbl) do
+	 setmetatable(pdfe_triplet, metatable_pdfe_triplet)
+      end
+      return setmetatable({},
+	 { pdfw = "dictionary",
+	   __index = function(t,k) return
+		 mt_index(tbl,k,pdfe_doc,is_legal_dictionary_key) end,
+	   __newindex = function(t,k,v) return
+		 mt_newindex(tbl,k,v,is_legal_dictionary_key) end,
+	   __pairs = function(t)
+	      return mt_pairs(tbl,pdfe_doc,pairs) end,
+	 }
+      )
+   end
+
+end --array & dictionary
+
+do --stream
+   metatable_stream = { pdfw = 'stream' }
+   function pdfw.from_pdfe_stream(pdfe_doc, stream, dictionary)
+      return setmetatable(
+	 { stream = stream, dictionary = dictionary, pdfe_doc = pdfe_doc },
+	 metatable_stream
+      )
+   end
+end
+
+do --reference
+
+   local function ref_index_error()
+      error("Cannot index a reference! Did you forget to call the reference to resolve it?", 2)
+   end
+
+   local reference_resolutions = {}
+   setmetatable(reference_resolutions, { __mode = 'k' } )
+
+   local metatable_pdfw_reference_to_pdfe_object = {
+      pdfw = "reference", __index = ref_index_error, __newindex = ref_index_error,
+      __call = function(obj)
+	 local referenced_pdfe_obj = rawget(obj, 'referenced_pdfe_obj')
+	 return pdfw.from_pdfe_triplet(
+	    rawget(obj, 'pdfe_doc'),
+	    pdfe.type(referenced_pdfe_obj),
+	    referenced_pdfe_obj,
+	    rawget(obj, 'referenced_pdfe_obj_detail')
+	 )
+      end,
+   }
+
+   local metatable_pdfw_reference = {
+      pdfw = "reference", __index = ref_index_error, __newindex = ref_index_error,
+      __call = function(obj)
+	 return rawget(obj, 'referenced_pdfw_obj')
+      end,
+   }
+
+   function pdfw.reference(pdfw_obj)
+      return setmetatable(
+	 { referenced_pdfw_obj = pdfw_obj },
+	 metatable_pdfw_reference
+      )
+   end
+
+   local metatable_pdfe_reference = {
+      pdfw = "reference", __index = ref_index_error, __newindex = ref_index_error,
+      __call = function(obj)
+	 local pdfe_doc = rawget(obj,'pdfe_doc')
+	 local reference_resolutions_for_doc = reference_resolutions[pdfe_doc]
+	 if not reference_resolutions_for_doc then
+	    reference_resolutions_for_doc = {}
+	    reference_resolutions[pdfe_doc] = reference_resolutions_for_doc
+	 end
+	 local referenced_pdfe_obj_id = rawget(obj, 'referenced_pdfe_obj_id')
+	 local reference_resolution = reference_resolutions_for_doc[referenced_pdfe_obj_id]
+	 if not reference_resolution then
+	    local pdfe_reference = rawget(obj, 'pdfe_reference')
+	    reference_resolution = pdfw.from_pdfe_triplet(
+	       pdfe_doc, pdfe.getfromreference(pdfe_reference))
+	    reference_resolutions_for_doc[referenced_pdfe_obj_id] = reference_resolution
+	 end
+	 return reference_resolution
+      end,
+   }
+
+   function pdfw.from_pdfe_reference(pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
+      return setmetatable({ pdfe_doc = pdfe_doc,
+			    pdfe_reference = pdfe_reference,
+			    referenced_pdfe_obj_id = referenced_pdfe_obj_id },
+	 metatable_pdfe_reference)
+   end
+   
+end --reference
+
+do --pdfw.from_pdfe_triplet
+   local val = function(pdfe_doc, value) return value end
+   local distributor = {
+      function() return pdfw.null() end, --null
+      val, --boolean
+      val, --integer
+      val, --float
+      function(pdfe_doc, value) return pdfw.name(value) end,
+      function(pdfe_doc, value, hex) return pdfw.string(value, hex) end,
+      pdfw.from_pdfe_array, ['pdfe.array'] = pdfw.from_pdfe_array,
+      pdfw.from_pdfe_dictionary, ['pdfe.dictionary'] = pdfw.from_pdfe_dictionary,
+      pdfw.from_pdfe_stream, ['pdfe.stream'] = pdfw.from_pdfe_stream,
+      pdfw.from_pdfe_reference, ['pdfe.reference'] = pdfw.from_pdfe_reference,
+   }
+   function pdfw.from_pdfe_triplet(pdfe_doc, type, value, detail)
+      if pdfe.type(pdfe_doc) ~= 'pdfe' then
+	 error("The first argument should be a pdf document object", 2)
+      end
+      f = distributor[type]-- or distributor[pdfe.type(value)]
+      if not f then
+	 error("object type not found in distributor", 2)
+      end
+      return f(pdfe_doc, value, detail)
+   end
+
+  end
+
+do --linearize
+
+   local linearize, distribute, distributor
+   
+   linearize = function(pdf, obj, indirect)
+      if indirect then
+	 if not pdf.objects[obj] then
+	    pdf.max_id = pdf.max_id + 1
+	    pdf.objects[obj] = pdf.max_id
+	    local pdf_repr = distribute(obj, distributor)(obj, pdf)
+	    local id = pdf.objects[obj]
+	    pdf.xref[id] = pdf.fh:seek()
+	    pdf.fh:write(id .. ' 0 obj\n', pdf_repr, '\nendobj\n')
+	    return pdf_repr
+	 end
+      else
+	 return distribute(obj, distributor)(obj, pdf)
+      end
+   end
+
+   pdfw.linearize = linearize
+   
+   distribute = function(obj, distributor)
+      mt = getmetatable(obj)
+      local f = (mt and distributor[mt.pdfw]) or distributor[type(obj)]
+      assert (f, ("Unsupported type %s of object %s"):format(type(obj), obj))
+      return f
+   end
+   
+   distributor = {
+      --Note the reversed order of pdf and obj in the functions below. This is so
+      --that the first couple of functions below can easily receive merely obj.
+      ["nil"] = function() return 'null' end,                        --null
+      boolean = tostring,
+      number = tostring,
+      name = tostring,
+      string = tostring,
+      array = function(obj, pdf)
+	 local child_reprs = { [0] = '[' }
+	 for i, child_obj in ipairs(obj) do
+	    child_reprs[i] = pdfw.linearize(pdf, child_obj)
+	 end
+	 table.insert(child_reprs, ']')
+	 return table.concat(child_reprs, ' ', 0)
+      end,
+      dictionary = function(obj, pdf)
+	 local child_reprs = { [0] = '<<' }
+	 local i = 1
+	 for key, child_obj in pairs(obj) do
+	    child_obj = obj[key]
+	    child_reprs[i] = '/' .. key .. ' ' .. pdfw.linearize(pdf, child_obj)
+	    i = i + 1
+	 end
+	 child_reprs[i] = '>>'
+	 return table.concat(child_reprs, ' ', 0)
+      end,
+      table = function(obj, pdf)
+	 local r
+	 if obj[1] or obj[0] then
+	    r = distributor["array"](obj, pdf)
+	 else
+	    r = distributor["dictionary"](obj, pdf)
+	 end
+	 return r
+      end,
+      stream = function(obj, pdf)
+	 local chunks = {
+	    distributor["dictionary"](
+	       pdfw.from_pdfe_dictionary(obj.pdfe_doc, obj.dictionary), pdf),
+	    'stream',
+	    obj.stream(),
+	    'endstream'
+	 }
+	 return table.concat(chunks, "\n")
+      end,
+      reference = function(obj, pdf)
+	 local referenced_pdfw_object = obj()
+	 pdfw.linearize(pdf, referenced_pdfw_object, true)
+	 return pdf.objects[referenced_pdfw_object] .. ' 0 R'
+      end,
+   }
+   
+end --linearize
+
+function pdfw.new(from)
+   local trailer
+   if pdfe.type(from) == 'pdfe' then
+      trailer = pdfw.from_pdfe_dictionary(from, from.trailer) -- from --> pdfe document
+   elseif type(from) == 'table' then
+      trailer = from
+   elseif not from then
+      trailer = {
+	 Root = pdfw.reference{
+	    Type = '/Catalog',
+	    Pages = pdfw.reference{
+	       Type = '/Pages',
+	       Count = 0,
+	       Kids = {},
+	    },
+	 },
+	 Info = {
+	    Producer = 'pdfw',
+	 },
+      }
+   else
+      error("You can only create a PDF from a pdfe document or a trailer dictionary", 2)
+   end
    local pdf = {
-      objects = {}, --holds *indirect* objects
-      max_id = 0,
-      reference_resolutions = {},
-      Catalog = Catalog,
-      Pages = Pages,
-      Info = Info,
+      Catalog = trailer.Root(),
+      Pages = trailer.Root().Pages,
+      Info = trailer.Info,
+      trailer = trailer,
       major = 1,
       minor = 4,
    }
-   pdfw._add_indirect_object(pdf, Catalog)
-   pdfw._add_indirect_object(pdf, Pages)
-   pdfw._add_indirect_object(pdf, Info)
    return pdf
 end
 
-function pdfw._add_indirect_object(pdf, obj)
-   assert(pdfw.is_pdfw_object(obj))
-   pointer = tostring(obj)
-   if not pdf.objects[pointer] then
-      pdf.max_id = pdf.max_id + 1
-      obj.id = pdf.max_id
-      pdf.objects[pointer] = obj
-   end
+function pdfw.from_pdfe_page(source_pdfe_doc, page_n)
+   return pdfw.from_pdfe_dictionary(
+      source_pdfe_doc, pdfe.getpage(source_pdfe_doc, page_n))
 end
-
-function pdfw._distribute(obj, distributor)
-   local f = distributor[obj.type]
-   assert (f, "assertion failed " .. tostring(obj))
-   return f
-end
-
-function pdfw._noop(...) end
-
-function pdfw.collect_indirect_objects(pdf, obj, add_this_object)
-   assert(pdfw.is_pdfw_object(obj))
-   if not pdf.objects[tostring(obj)] then
-      if add_this_object then
-	 pdfw._add_indirect_object(pdf, obj)
-      end
-      pdfw._distribute(obj, pdfw._collect_indirect_objects_distributor)(pdf, obj)
-   end
-end
-
--- trace collection indent: nil = don't trace, '' = trace
-tc_indent = nil
-
-pdfw._collect_indirect_objects_distributor = {
-   pdfw._noop,
-   pdfw._noop,
-   pdfw._noop,
-   pdfw._noop,
-   pdfw._noop,
-   pdfw._noop,
-   function(pdf, obj) --array
-      for i,o in ipairs(obj.items) do
-	 if tc_indent then
-	    print(tc_indent, i, o)
-	    tc_indent = tc_indent .. '\t'
-	 end
-	 pdfw.collect_indirect_objects(pdf, o)
-	 if tc_indent then tc_indent = string.sub(tc_indent, 1, -2) end
-      end
-   end,
-   function(pdf, obj) --dict
-      for k,o in pairs(obj.items) do
-	 if tc_indent then
-	    print(tc_indent, k, o)
-	    tc_indent = tc_indent .. '\t'
-	 end
-	 pdfw.collect_indirect_objects(pdf, o)
-	 if tc_indent then tc_indent = string.sub(tc_indent, 1, -2) end
-      end
-   end,
-   function(pdf, obj) --stream
-      for k,o in pairs(obj.dictionary.items) do
-	 pdfw.collect_indirect_objects(pdf, o)
-      end
-   end,
-   function(pdf, obj) --ref
-      referenced_pdfw_object = obj.resolve(pdf)
-      if tc_indent then
-	 print(tc_indent, obj, referenced_pdfw_object)
-	 tc_indent = tc_indent .. '\t'
-      end
-      pdfw.collect_indirect_objects(pdf, referenced_pdfw_object, true)
-      if tc_indent then tc_indent = string.sub(tc_indent, 1, -2) end
-   end,
-}
-
-function pdfw.to_pdf_representation(pdf, obj)
-   assert(pdfw.is_pdfw_object(obj))
-   return pdfw._distribute(obj, pdfw._to_pdf_representation_distributor)(obj, pdf)
-end
-
-pdfw._to_pdf_representation_distributor = {
-   --Note the reversed order of pdf and obj in the functions below.
-   function() return 'null' end,                        --null
-   function(obj) return tostring(obj.value) end,        --boolean
-   function(obj) return tostring(obj.value) end,        --integer
-   function(obj) return tostring(obj.value) end,        --float
-   function(obj) return '/' .. tostring(obj.value) end, --name
-   function(obj)                                        --string
-      if obj.hex then
-	 hex_chars = { [0] = '<' }
-	 value = obj.value
-	 for i = 1, string.len(value) do
-	    hex_chars[i] = string.format("%X", string.byte(value, i))
-	 end
-	 table.insert(hex_chars, '>')
-	 return table.concat(hex_chars, '', 0)
-      else
-	 return table.concat( { '(', obj.value, ')' } )
-      end
-   end,
-   function(obj, pdf)                                   --array
-      local child_reprs = { [0] = '[' }
-      for i, child_obj in ipairs(obj.items) do
-	 child_reprs[i] = pdfw.to_pdf_representation(pdf, child_obj)
-      end
-      table.insert(child_reprs, ']')
-      return table.concat(child_reprs, ' ', 0)
-   end,
-   function(obj, pdf)                                   --dictionary
-      local child_reprs = { [0] = '<<' }
-      local i = 1
-      for key, child_obj in pairs(obj.items) do
-	 child_reprs[i] = '/' .. key .. ' ' .. pdfw.to_pdf_representation(pdf, child_obj)
-	 i = i + 1
-      end
-      child_reprs[i] = '>>'
-      return table.concat(child_reprs, ' ', 0)
-   end,
-   function(obj, pdf)                                   --stream
-      local chunks = {
-	 pdfw.to_pdf_representation(pdf, obj.dictionary),
-	 'stream',
-	 obj.stream(),
-	 'endstream'
-      }
-      return table.concat(chunks, "\n")
-   end,
-   function(obj, pdf)                                   --reference
-      return obj.resolve(pdf).id .. ' 0 R'
-   end
-}
 
 function pdfw.append_page(pdf, source_pdfe_doc, page_n)
-   local pdfe_source_page = pdfw.dictionary(pdfe.getpage(source_pdfe_doc, page_n))
-   local new_page = pdfw.dictionary(pdfe_source_page.items)
-   table.insert(pdf.Pages.value.Kids.value, pdfw.reference(new_page))
-   pdf.Pages.value.Count.value = pdf.Pages.value.Count.value + 1
-   new_page.value.Parent = pdfw.reference(pdf.Pages)
-   pdfw.collect_indirect_objects(pdf, new_page, true)
-   major, minor = pdfe.getversion(source_pdfe_doc)
-   assert(major == 1)
-   pdf.minor = math.max(pdf.minor, minor)
+   local Pages = pdf.Pages()
+   new_page = pdfw.from_pdfe_page(source_pdfe_doc, page_n)
+   table.insert(Pages.Kids, pdfw.reference(new_page))
+   Pages.Count = Pages.Count + 1
+   new_page.Parent = pdfw.reference(Pages)
+   local major, minor = pdfe.getversion(source_pdfe_doc)
+   if major > pdf.major then
+      pdf.major = major
+      pdf.minor = minor
+   elseif major == pdf.major then
+      pdf.minor = math.max(pdf.minor, minor)
+   end
 end
 
 function pdfw.save(pdf, filename)
-   fh = io.open(filename, 'wb')
-   fh:write(string.format("%%PDF-%d.%d\n", pdf.major, pdf.minor))
-   xref = {}
-   for k,obj in pairs(pdf.objects) do
-      xref[obj.id] = fh:seek()
-      fh:write(
-	 obj.id .. ' 0 obj\n',
-	 pdfw.to_pdf_representation(pdf, obj),
-	 '\nendobj\n'
-      )
+   
+   pdf.objects = {}
+   pdf.max_id = 0
+   pdf.xref = {}
+   pdf.fh = io.open(filename, 'wb')
+   
+   pdf.fh:write(string.format("%%PDF-%d.%d\n", pdf.major, pdf.minor))
+   
+   local magic_bin = 'PDFW'
+   magic_bin = {magic_bin:byte(1,-1)}
+   pdf.fh:write("%")
+   for i,v in ipairs(magic_bin) do
+      pdf.fh:write(string.char(v+128))
    end
-   startxref = fh:seek()
-   fh:write(
+   pdf.fh:write("\n")
+
+   --Note that this does not write out the trailer itself, because argument
+   --|indirect| is not given.  Writing out the |Catalog| here would not work,
+   --because |Info| is only referred to by the trailer, so it would get written
+   --out (alongside the trailer) behind |xref|.
+   pdfw.linearize(pdf, pdf.trailer)
+   
+   local startxref = pdf.fh:seek()
+   pdf.fh:write(
       'xref\n',
-      '0 ', #xref + 1, "\n",
+      '0 ', #pdf.xref + 1, "\n",
       '0000000000 65535 f \n'
    )
-   for id,pos in ipairs(xref) do
-      fh:write(string.format("%010d", pos), ' 00000 n \n')
+   for id,pos in ipairs(pdf.xref) do
+      pdf.fh:write(string.format("%010d", pos), ' 00000 n \n')
    end
-   local trailer = pdfw.dictionary({
-	 Root = pdfw.reference(pdf.Catalog),
-	 Info = pdfw.reference(pdf.Info),
-	 Size = pdfw.integer(#xref + 1),
-   })
-   fh:write("trailer\n", pdfw.to_pdf_representation(pdf, trailer), "\n")
-   fh:write("startxref\n", startxref, "\n")
-   fh:write("%%EOF\n")
-   fh:close()
+   
+   pdf.trailer.Size = #pdf.xref + 1
+   pdf.fh:write("trailer\n", pdfw.linearize(pdf, pdf.trailer), "\n")
+   
+   pdf.fh:write("startxref\n", startxref, "\n")
+   pdf.fh:write("%%EOF\n")
+   pdf.fh:close()
+   
+   pdf.objects, pdf.max_id, pdf.xref, pdf.fh, pdf.trailer.Size = nil, nil, nil, nil, nil
 end
+
+return pdfw
