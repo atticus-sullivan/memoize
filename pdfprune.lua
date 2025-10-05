@@ -7,12 +7,6 @@ ref = pdfw.reference
 
 infile = arg[1]
 
-arg[1] = nil
-pages = {}
-for i, page_n in ipairs(arg) do
-   pages[page_n] = true
-end
-
 doc = pdfe.open(infile)
 pdf = pdfw.new(doc)
 
@@ -24,7 +18,11 @@ trailer.Root = ref(Catalog)
 Pages = Catalog.Pages()
 Catalog.Pages = ref(Pages)
 
-table.remove(Pages.Kids, 1)
-Pages.Count = Pages.Count - 1
+table.remove(arg,1)
+table.sort(arg, function(a,b) return a > b end)
+for i, page_n in ipairs(arg) do
+   table.remove(Pages.Kids, page_n)
+end
+Pages.Count = Pages.Count - #arg
 
 pdfw.update(pdf, infile)
