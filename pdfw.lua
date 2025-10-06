@@ -1,19 +1,5 @@
 #!/usr/bin/env texlua
 
-local tracing = true
-local trace, tinspect, tracein, traceout
-do
-   local tracing_indent = ''
-   trace = function(s, ...)
-      if tracing then print(tracing_indent .. s, ...) end
-   end
-   tinspect = function(x, levels)
-      if tracing then inspect(x, levels, tracing_indent) end
-   end
-   tracein = function() tracing_indent = tracing_indent .. '  ' end
-   traceout = function() tracing_indent = tracing_indent:sub(1, -3) .. "" end
-end
-
 do
    local function _inspect_table(x, levels, indent, received_done)
       -- done prevents infinite regress
@@ -51,6 +37,10 @@ local pdfw = {}
 local function index_error() error("Invalid index", 2) end
 local function identity(obj) return obj end
 local function obj_value_tostring(obj) return tostring(obj.value) end
+
+local referenced_objects =  setmetatable({}, { __mode = 'k' } )
+local original_object_ids = setmetatable({}, { __mode = 'k' } )
+local updated_objects =     setmetatable({}, { __mode = 'k' } )
 
 --Assigning nil to a table removes the entry, so we need this to put a null
 --value into a dict or array, don't we?
@@ -166,9 +156,11 @@ do --array & dictionary
       return value
    end
    
-   local mt_newindex = function(tbl, key, value, legal_index_f)
+   local mt_newindex = function(obj, tbl, key, value, pdfe_doc, legal_index_f)
       assert(legal_index_f(key))
       tbl[key] = value
+      updated_objects[pdfe_doc] = updated_objects[pdfe_doc] or {}
+      updated_objects[pdfe_doc][obj] = true
    end
    
    local mt_pairs = function(tbl, pdfe_doc, pairs_f)
@@ -199,7 +191,7 @@ do --array & dictionary
 	    __index = function(t,k)
 	       return mt_index(tbl,k,pdfe_doc,is_legal_array_key) end,
 	    __newindex = function(t,k,v) 
-	       return mt_newindex(tbl,k,v,is_legal_array_key) end,
+	       return mt_newindex(t,tbl,k,v,pdfe_doc,is_legal_array_key) end,
 	    __pairs = function(t)
 	       return mt_pairs(tbl,pdfe_doc,ipairs) end,
 	    __len = function(t) return #tbl end,
@@ -219,7 +211,7 @@ do --array & dictionary
 	   __index = function(t,k) return
 		 mt_index(tbl,k,pdfe_doc,is_legal_dictionary_key) end,
 	   __newindex = function(t,k,v) return
-		 mt_newindex(tbl,k,v,is_legal_dictionary_key) end,
+		 mt_newindex(t,tbl,k,v,pdfe_doc,is_legal_dictionary_key) end,
 	   __pairs = function(t)
 	      return mt_pairs(tbl,pdfe_doc,pairs) end,
 	    __call = identity,
@@ -251,62 +243,43 @@ do --reference
       error("Cannot index a reference! \z
              Did you forget to call the reference to resolve it?", 2)
    end
-   local mt_call_what_error = "The argument to the call of a reference \z
-                               should be 'object' or 'id'"
    
-   local reference_resolutions = {}
-   setmetatable(reference_resolutions, { __mode = 'k' } )
-
-   local mt_call = function(obj, what, referenced_pdfw_obj)
-      what = what or 'object'
-      if what == 'object' then
-	 return referenced_pdfw_obj
-      elseif what == 'id' then
-	 return nil
-      else
-	 error(mt_call_what_error, 2)
+   do
+      
+      local function mt_call(obj, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
+	 --todo: simplify once we open the pdfe doc within pdfw
+	 referenced_objects[pdfe_doc] = referenced_objects[pdfe_doc] or {}
+	 local referenced_objects_for_doc = referenced_objects[pdfe_doc]
+	 local referenced_object = referenced_objects_for_doc[referenced_pdfe_obj_id]
+	 if not referenced_object then
+	    referenced_object = pdfw.from_pdfe_triplet(
+	       pdfe_doc, pdfe.getfromreference(pdfe_reference))
+	    referenced_objects_for_doc[referenced_pdfe_obj_id] = referenced_object
+	    original_object_ids[referenced_object] = {
+	       pdfe_doc = pdfe_doc, id = referenced_pdfe_obj_id }
+	 end
+	 return referenced_object
       end
+
+      function pdfw.from_pdfe_reference(pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
+	 return setmetatable({}, {
+	       pdfw = "reference",
+	       __index = ref_index_error, __newindex = ref_index_error,
+	       __call = function(obj) return mt_call(
+		     obj, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id) end,
+	 })
+      end
+      
    end
-   
+
    function pdfw.reference(referenced_pdfw_obj)
       return setmetatable({}, {
-	    pdfw = "pdfw_reference",
+	    pdfw = "reference",
 	    __index = ref_index_error, __newindex = ref_index_error,
-	    __call = function(obj) return mt_call(obj, what, referenced_pdfw_obj) end,
+	    __call = function(obj) return referenced_pdfw_obj end,
       })
    end
 
-   local function mt_call(obj, what, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
-      what = what or 'object'
-      if what == 'id' then
-	 return referenced_pdfe_obj_id
-      elseif what == 'object' then
-	 local reference_resolutions_for_doc = reference_resolutions[pdfe_doc]
-	 if not reference_resolutions_for_doc then
-	    reference_resolutions_for_doc = {}
-	    reference_resolutions[pdfe_doc] = reference_resolutions_for_doc
-	 end
-	 local reference_resolution = reference_resolutions_for_doc[referenced_pdfe_obj_id]
-	 if not reference_resolution then
-	    reference_resolution = pdfw.from_pdfe_triplet(
-	       pdfe_doc, pdfe.getfromreference(pdfe_reference))
-	    reference_resolutions_for_doc[referenced_pdfe_obj_id] = reference_resolution
-	 end
-	 return reference_resolution
-      else
-	 error(mt_call_what_error, 2)
-      end
-   end
-
-   function pdfw.from_pdfe_reference(pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
-      return setmetatable({}, {
-	    pdfw = "pdfe_reference",
-	    __index = ref_index_error, __newindex = ref_index_error,
-	    __call = function(obj, what) return mt_call(
-		  obj, what, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id) end,
-      })
-   end
-   
 end --reference
 
 do --pdfw.from_pdfe_triplet
@@ -335,20 +308,41 @@ do --pdfw.from_pdfe_triplet
    end
 end
 
+function pdfw.type(obj, strict)
+   mt = getmetatable(obj)
+   if strict then
+      return mt and mt.pdfw
+   else
+      return (mt and mt.pdfw) or type(obj)
+   end
+end
+
 do --linearize
 
    local linearize, distribute, distributor
    
    linearize = function(pdf, obj, indirect)
       if indirect then
-	 if not pdf.objects[obj] then
-	    pdf.max_id = pdf.max_id + 1
-	    pdf.objects[obj] = pdf.max_id
-	    local pdf_repr = distribute(obj, distributor)(obj, pdf)
-	    local id = pdf.objects[obj]
-	    pdf.xref[id] = pdf.fh:seek()
-	    pdf.fh:write(id .. ' 0 obj\n', pdf_repr, '\nendobj\n')
-	    return pdf_repr
+	 if not pdf.object_ids[obj] then
+	    if pdf.updating then
+	       local original = original_object_ids[obj]
+	       if original and original.pdfe_doc == pdf.pdfe_doc then
+		  pdf.object_ids[obj] = original.id
+	       else
+		  pdf.max_id = pdf.max_id + 1
+		  pdf.object_ids[obj] = pdf.max_id
+	       end
+	    else
+	       pdf.max_id = pdf.max_id + 1
+	       pdf.object_ids[obj] = pdf.max_id
+	    end
+	    if not pdf.updating or updated_objects[pdf.pdfe_doc][obj] then
+	       local pdf_repr = distribute(obj, distributor)(obj, pdf)
+	       local id = pdf.object_ids[obj]
+	       pdf.xref[id] = pdf.fh:seek()
+	       pdf.fh:write(id .. ' 0 obj\n', pdf_repr, '\nendobj\n')
+	       return pdf_repr
+	    end
 	 end
       else
 	 return distribute(obj, distributor)(obj, pdf)
@@ -356,7 +350,7 @@ do --linearize
    end
 
    pdfw.linearize = linearize
-   
+
    distribute = function(obj, distributor)
       mt = getmetatable(obj)
       local f = (mt and distributor[mt.pdfw]) or distributor[type(obj)]
@@ -389,7 +383,7 @@ do --linearize
 	 local child_reprs = { [0] = '<<' }
 	 local i = 1
 	 for key, child_obj in pairs(obj) do
-	    child_obj = obj[key]
+	    child_obj = obj[key] --necessary! but why?
 	    child_reprs[i] = '/' .. key .. ' ' .. pdfw.linearize(pdf, child_obj)
 	    i = i + 1
 	 end
@@ -419,23 +413,15 @@ do --linearize
 	 }
 	 return table.concat(chunks, "\n")
       end,
-      pdfe_reference = function(obj, pdf)
-	 if pdf.updating then
-	    return obj(true) .. ' 0 R' --obj(true) --> object id
-	 else
-	    local referenced_pdfw_object = obj()
-	    pdfw.linearize(pdf, referenced_pdfw_object, true)
-	    return pdf.objects[referenced_pdfw_object] .. ' 0 R'
-	 end
-      end,
-      pdfw_reference = function(obj, pdf)
+      reference = function(obj, pdf)
 	 local referenced_pdfw_object = obj()
 	 pdfw.linearize(pdf, referenced_pdfw_object, true)
-	 return pdf.objects[referenced_pdfw_object] .. ' 0 R'
+	 return pdf.object_ids[referenced_pdfw_object] .. ' 0 R'
       end,
    }
    
 end --linearize
+
 
 function pdfw.new(from)
    local trailer
@@ -490,7 +476,7 @@ end
 
 function pdfw.save(pdf, filename)
    
-   pdf.objects = {}
+   pdf.object_ids = {}
    pdf.max_id = 0
    pdf.xref = {}
    pdf.fh = io.open(filename, 'wb')
@@ -528,10 +514,13 @@ function pdfw.save(pdf, filename)
    pdf.fh:write("%%EOF\n")
    pdf.fh:close()
    
-   pdf.objects, pdf.max_id, pdf.xref, pdf.fh, pdf.trailer.Size = nil, nil, nil, nil, nil
+   pdf.object_ids, pdf.max_id, pdf.xref, pdf.fh, pdf.trailer.Size = nil, nil, nil, nil, nil
 end
 
-function pdfw.update(pdf, filename)
+function pdfw.update(pdf, filename, pdfe_doc, prune)
+   
+   pdf.pdfe_doc = pdfe_doc -- temporary
+   
    local fh = io.open(filename, 'rb')
    fh:seek("end", -40)
    local prev = fh:read("a")
@@ -539,30 +528,50 @@ function pdfw.update(pdf, filename)
    _,_,prev = prev:find('startxref%s+(%d+)%s+%%%%EOF')
    
    pdf.updating = true
-   pdf.objects = {}
+   pdf.object_ids = {}
    pdf.max_id = pdf.trailer.Size
    pdf.xref = {}
    pdf.fh = io.open(filename, 'a+b')
    pdf.fh:seek("end")
    
-   pdfw.linearize(pdf, pdf.trailer, false, true)
+   pdfw.linearize(pdf, pdf.trailer)
+   for obj,_ in pairs(updated_objects[pdf.pdfe_doc]) do
+      if original_object_ids[obj] then
+	 pdfw.linearize(pdf, obj, true)
+      end
+   end
 
    local startxref = pdf.fh:seek()
-   pdf.fh:write(
-      'xref\n0 1\n0000000000 65535 f \n',
-      trailer.Size + 1, ' ', pdf.max_id - pdf.trailer.Size, "\n"
-   )
-   for id = pdf.trailer.Size + 1, pdf.max_id  do
-      pos = pdf.xref[id]
-      pdf.fh:write(string.format("%010d", pos), ' 00000 n \n')
-   end
+   pdf.fh:write('xref\n',
+		'0 1\n0000000000 65535 f \n')
    
-   pdf.trailer.Size = pdf.max_id + 1
+   local function write_xref_section(start_id)
+      while not pdf.xref[start_id] and start_id <= pdf.max_id do
+	 start_id = start_id + 1
+      end
+      if start_id > pdf.max_id then return start_id end
+
+      local next_id = start_id + 1
+      while pdf.xref[next_id] do next_id = next_id + 1 end
+      
+      pdf.fh:write(start_id, ' ', next_id - start_id, "\n")
+      for id = start_id, next_id - 1  do
+	 pdf.fh:write(string.format("%010d", pdf.xref[id]), ' 00000 n \n')
+      end
+
+      return next_id
+   end
+      
+   local id = 1
+   while id <= pdf.max_id do id = write_xref_section(id) end
+   assert(id == pdf.max_id + 1)
+   
+   pdf.trailer.Size = id
    pdf.trailer.Prev = prev
    pdf.fh:write("trailer\n", pdfw.linearize(pdf, pdf.trailer, false, true), "\n")
    
    pdf.fh:write("startxref\n", startxref, "\n")
-   
+
    pdf.fh:write("%%EOF\n")
    pdf.fh:close()   
    pdf.updating = nil

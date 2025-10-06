@@ -10,13 +10,7 @@ infile = arg[1]
 doc = pdfe.open(infile)
 pdf = pdfw.new(doc)
 
-trailer = pdf.trailer
-
-Catalog = trailer.Root()
-trailer.Root = ref(Catalog)
-
-Pages = Catalog.Pages()
-Catalog.Pages = ref(Pages)
+Pages = pdf.trailer.Root().Pages()
 
 table.remove(arg,1)
 table.sort(arg, function(a,b) return a > b end)
@@ -25,4 +19,4 @@ for i, page_n in ipairs(arg) do
 end
 Pages.Count = Pages.Count - #arg
 
-pdfw.update(pdf, infile)
+pdfw.update(pdf, infile, doc)
