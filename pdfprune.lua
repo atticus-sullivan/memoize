@@ -2,18 +2,15 @@
 
 -- Usage: pdfprune.lua infile page_number [page_number ...]
 
-local pdfw = require('pdfw')
-ref = pdfw.reference
+pdf = require('luapdfrw')
 
-infile = arg[1]
-table.remove(arg,1) --arg now contains only the page numbers
+filename = table.remove(arg,1) --arg now contains only the page numbers
 
-doc = pdfe.open(infile)
-pdf = pdfw.new(doc)
+doc = pdf.open(filename)
 
-pages = pdfw.get_pages(pdf)
+pages = doc:get_pages()
 for i, page_n in ipairs(arg) do
-   pdfw.remove_page(pdf, pages[tonumber(page_n)])
+   doc:remove_page(pages[tonumber(page_n)])
 end
 
-pdfw.update(pdf, infile, doc)
+doc:update(filename)

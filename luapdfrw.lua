@@ -380,15 +380,14 @@ do --linearize
    
 end --linearize
 
+local pdfw_doc = {}
+local mt_pdfw_doc = {
+   __index = pdfw_doc,
+}
 
-function pdfw.new(from)
-   local trailer
-   if pdfe.type(from) == 'pdfe' then
-      trailer = pdfw.from_pdfe_dictionary(from, from.trailer) -- from --> pdfe document
-   elseif type(from) == 'table' then
-      trailer = from
-   elseif not from then
-      trailer = {
+function pdfw.new(trailer)
+   trailer = trailer or
+      {
 	 Root = pdfw.reference{
 	    Type = '/Catalog',
 	    Pages = pdfw.reference{
@@ -401,38 +400,32 @@ function pdfw.new(from)
 	    Producer = 'pdfw',
 	 },
       }
-   else
-      error("You can only create a PDF from a pdfe document or a trailer dictionary", 2)
-   end
    local doc = {
       trailer = trailer,
       major = 1,
       minor = 4,
    }
-   return doc
+   return setmetatable(doc, mt_pdfw_doc)
 end
 
-function pdfw.from_pdfe_page(source_pdfe_doc, page_n)
-   return pdfw.from_pdfe_dictionary(
-      source_pdfe_doc, pdfe.getpage(source_pdfe_doc, page_n))
+function pdfw.open(filename)
+   local pdfe_doc = pdfe.open(filename)
+   local trailer = pdfw.from_pdfe_dictionary(pdfe_doc, pdfe.gettrailer(pdfe_doc))
+   local major, minor = pdfe.getversion(pdfe_doc)
+   local doc = {
+      pdfe_doc = pdfe_doc,
+      trailer = trailer,
+      major = major,
+      minor = minor,
+   }
+   return setmetatable(doc, mt_pdfw_doc)
 end
 
-function pdfw.append_page(doc, source_pdfe_doc, page_n)
-   local Pages = doc.trailer.Root().Pages()
-   new_page = pdfw.from_pdfe_page(source_pdfe_doc, page_n)
-   table.insert(Pages.Kids, pdfw.reference(new_page))
-   Pages.Count = Pages.Count + 1
-   new_page.Parent = pdfw.reference(Pages)
-   local major, minor = pdfe.getversion(source_pdfe_doc)
-   if major > doc.major then
-      doc.major = major
-      doc.minor = minor
-   elseif major == doc.major then
-      doc.minor = math.max(doc.minor, minor)
-   end
+function pdfw_doc.close(doc)
+   if doc.pdfe_doc then doc.pdfe_doc.close() end
 end
 
-function pdfw.save(doc, filename)
+function pdfw_doc.save(doc, filename)
    
    doc.object_ids = {}
    doc.max_id = 0
@@ -475,10 +468,11 @@ function pdfw.save(doc, filename)
    doc.object_ids, doc.max_id, doc.xref, doc.fh, doc.trailer.Size = nil, nil, nil, nil, nil
 end
 
-function pdfw.update(doc, filename, pdfe_doc, prune)
-   
-   doc.pdfe_doc = pdfe_doc -- temporary
+--Perform an incremental update of the PDF file.
+function pdfw_doc.update(doc, filename, prune)
 
+   --todo: prune, i.e. mark all unused objects as deleted
+   
    --Get the location of the previous xref table.
    local fh = io.open(filename, 'rb')
    fh:seek("end", -40)
@@ -536,6 +530,7 @@ function pdfw.update(doc, filename, pdfe_doc, prune)
    doc.updating = nil
 end
 
+--A helper which produces an array of Page objects from the Page tree.
 do
    local function get_pages_from_Pages(p, result)
       if p.Type == '/Page' then
@@ -546,12 +541,28 @@ do
 	 end
       end
    end
-   function pdfw.get_pages(doc)
+   function pdfw_doc.get_pages(doc)
       result = {}
       root_Pages = doc.trailer.Root().Pages()
       get_pages_from_Pages(root_Pages, result)
       return result
    end 
+end
+
+
+function pdfw_doc.append_page(doc, from_doc, page_n)
+   local Pages = doc.trailer.Root().Pages()
+   new_page = pdfw.from_pdfe_dictionary(
+      from_doc.pdfe_doc, pdfe.getpage(from_doc.pdfe_doc, page_n))
+   table.insert(Pages.Kids, pdfw.reference(new_page))
+   Pages.Count = Pages.Count + 1
+   new_page.Parent = pdfw.reference(Pages)
+   if from_doc.major > doc.major then
+      doc.major = from_doc.major
+      doc.minor = from_doc.minor
+   elseif from_doc.major == doc.major then
+      doc.minor = math.max(doc.minor, from_doc.minor)
+   end
 end
 
 do
@@ -580,7 +591,7 @@ do
       next_remove()
    end
 
-   function pdfw.remove_page(doc, page)
+   function pdfw_doc.remove_page(doc, page)
       assert(page.Type == '/Page')
       
       --Check that the |page| object indeed belongs to the document.

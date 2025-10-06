@@ -2,13 +2,12 @@
 
 -- Usage: pdfextract.lua infile page_number outfile
 
-local pdfw = require('pdfw')
+local pdf = require('luapdfrw')
 
-infile = arg[1]
-page_n = tonumber(arg[2])
-outfile = arg[3]
+infile, page_n, outfile = table.unpack(arg)
 
-doc = pdfe.open(infile)
-pdf = pdfw.new()
-pdfw.append_page(pdf, doc, page_n)
-pdfw.save(pdf, outfile)
+indoc = pdfe.open(infile)
+outdoc = pdf.new()
+
+outdoc:append_page(indoc, page_n)
+outdoc:save(outfile)
