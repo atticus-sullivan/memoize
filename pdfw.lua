@@ -26,8 +26,6 @@ do
 	 _inspect_table(pdfe.dictionarytotable(x), levels, indent .. '| ', {})
       elseif pdfe.type(x) == 'pdfe.array' then
 	 _inspect_table(pdfe.arraytotable(x), levels, indent .. '| ', {})
-	 --elseif pdfe.type(x) == 'pdfe.stream' then
-	 --   _inspect_table(pdfe.arraytotable(x), levels, indent .. '| ')
       end
    end
 end
@@ -273,31 +271,31 @@ do --linearize
 
    local linearize, distribute, distributor
    
-   linearize = function(pdf, obj, indirect)
+   linearize = function(doc, obj, indirect)
       if indirect then
-	 if not pdf.object_ids[obj] then
-	    if pdf.updating then
+	 if not doc.object_ids[obj] then
+	    if doc.updating then
 	       local original = original_object_ids[obj]
-	       if original and original.pdfe_doc == pdf.pdfe_doc then
-		  pdf.object_ids[obj] = original.id
+	       if original and original.pdfe_doc == doc.pdfe_doc then
+		  doc.object_ids[obj] = original.id
 	       else
-		  pdf.max_id = pdf.max_id + 1
-		  pdf.object_ids[obj] = pdf.max_id
+		  doc.max_id = doc.max_id + 1
+		  doc.object_ids[obj] = doc.max_id
 	       end
 	    else
-	       pdf.max_id = pdf.max_id + 1
-	       pdf.object_ids[obj] = pdf.max_id
+	       doc.max_id = doc.max_id + 1
+	       doc.object_ids[obj] = doc.max_id
 	    end
-	    if not pdf.updating or updated_objects[pdf.pdfe_doc][obj] then
-	       local pdf_repr = distribute(obj, distributor)(obj, pdf)
-	       local id = pdf.object_ids[obj]
-	       pdf.xref[id] = pdf.fh:seek()
-	       pdf.fh:write(id .. ' 0 obj\n', pdf_repr, '\nendobj\n')
+	    if not doc.updating or updated_objects[doc.pdfe_doc][obj] then
+	       local pdf_repr = distribute(obj, distributor)(obj, doc)
+	       local id = doc.object_ids[obj]
+	       doc.xref[id] = doc.fh:seek()
+	       doc.fh:write(id .. ' 0 obj\n', pdf_repr, '\nendobj\n')
 	       return pdf_repr
 	    end
 	 end
       else
-	 return distribute(obj, distributor)(obj, pdf)
+	 return distribute(obj, distributor)(obj, doc)
       end
    end
 
@@ -311,7 +309,7 @@ do --linearize
    end
    
    distributor = {
-      --Note the reversed order of pdf and obj in the functions below. This is so
+      --Note the reversed order of doc and obj in the functions below. This is so
       --that the first couple of functions below can easily receive merely obj.
       ["nil"] = function() return 'null' end, --primitive nil --> pdf null
       null = tostring, --pdfw.null
@@ -328,20 +326,20 @@ do --linearize
 	 else return table.concat{ '(', s, ')' } end
       end,
       hex_string = function(obj) return table.concat{ '<', obj.value, '>' } end,
-      array = function(obj, pdf)
+      array = function(obj, doc)
 	 local child_reprs = { [0] = '[' }
 	 for i, child_obj in ipairs(obj) do
-	    child_reprs[i] = pdfw.linearize(pdf, child_obj)
+	    child_reprs[i] = pdfw.linearize(doc, child_obj)
 	 end
 	 table.insert(child_reprs, ']')
 	 return table.concat(child_reprs, ' ', 0)
       end,
-      dictionary = function(obj, pdf)
+      dictionary = function(obj, doc)
 	 local child_reprs = { [0] = '<<' }
 	 local i = 1
 	 for key, child_obj in pairs(obj) do
 	    child_obj = obj[key] --necessary! but why?
-	    child_reprs[i] = '/' .. key .. ' ' .. pdfw.linearize(pdf, child_obj)
+	    child_reprs[i] = '/' .. key .. ' ' .. pdfw.linearize(doc, child_obj)
 	    i = i + 1
 	 end
 	 child_reprs[i] = '>>'
@@ -351,32 +349,32 @@ do --linearize
       --an array if numeric index 1 is present.  However, an empty table could
       --be either an array or a dictionary.  We get around this by the
       --convention that setting numeric index 0 implies that it is an array.
-      table = function(obj, pdf)
+      table = function(obj, doc)
 	 local r
 	 if obj[1] or obj[0] then
-	    r = distributor["array"](obj, pdf)
+	    r = distributor["array"](obj, doc)
 	 else
-	    r = distributor["dictionary"](obj, pdf)
+	    r = distributor["dictionary"](obj, doc)
 	 end
 	 return r
       end,
-      stream = function(obj, pdf)
+      stream = function(obj, doc)
 	 local chunks = {
 	    distributor["dictionary"](
-	       pdfw.from_pdfe_dictionary(obj.pdfe_doc, obj.dictionary), pdf),
+	       pdfw.from_pdfe_dictionary(obj.pdfe_doc, obj.dictionary), doc),
 	    'stream',
 	    obj.stream(),
 	    'endstream'
 	 }
 	 return table.concat(chunks, "\n")
       end,
-      reference = function(obj, pdf)
+      reference = function(obj, doc)
 	 local referenced_pdfw_object = obj()
-	 pdfw.linearize(pdf, referenced_pdfw_object, true)
-	 return pdf.object_ids[referenced_pdfw_object] .. ' 0 R'
+	 pdfw.linearize(doc, referenced_pdfw_object, true)
+	 return doc.object_ids[referenced_pdfw_object] .. ' 0 R'
       end,
-      indirect = function(obj, pdf)
-	 return pdfw.linearize(pdf, obj.value)
+      indirect = function(obj, doc)
+	 return pdfw.linearize(doc, obj.value)
       end,
    }
    
@@ -406,12 +404,12 @@ function pdfw.new(from)
    else
       error("You can only create a PDF from a pdfe document or a trailer dictionary", 2)
    end
-   local pdf = {
+   local doc = {
       trailer = trailer,
       major = 1,
       minor = 4,
    }
-   return pdf
+   return doc
 end
 
 function pdfw.from_pdfe_page(source_pdfe_doc, page_n)
@@ -419,122 +417,123 @@ function pdfw.from_pdfe_page(source_pdfe_doc, page_n)
       source_pdfe_doc, pdfe.getpage(source_pdfe_doc, page_n))
 end
 
-function pdfw.append_page(pdf, source_pdfe_doc, page_n)
-   local Pages = pdf.trailer.Root().Pages()
+function pdfw.append_page(doc, source_pdfe_doc, page_n)
+   local Pages = doc.trailer.Root().Pages()
    new_page = pdfw.from_pdfe_page(source_pdfe_doc, page_n)
    table.insert(Pages.Kids, pdfw.reference(new_page))
    Pages.Count = Pages.Count + 1
    new_page.Parent = pdfw.reference(Pages)
    local major, minor = pdfe.getversion(source_pdfe_doc)
-   if major > pdf.major then
-      pdf.major = major
-      pdf.minor = minor
-   elseif major == pdf.major then
-      pdf.minor = math.max(pdf.minor, minor)
+   if major > doc.major then
+      doc.major = major
+      doc.minor = minor
+   elseif major == doc.major then
+      doc.minor = math.max(doc.minor, minor)
    end
 end
 
-function pdfw.save(pdf, filename)
+function pdfw.save(doc, filename)
    
-   pdf.object_ids = {}
-   pdf.max_id = 0
-   pdf.xref = {}
-   pdf.fh = io.open(filename, 'wb')
+   doc.object_ids = {}
+   doc.max_id = 0
+   doc.xref = {}
+   doc.fh = io.open(filename, 'wb')
    
-   pdf.fh:write(string.format("%%PDF-%d.%d\n", pdf.major, pdf.minor))
+   doc.fh:write(string.format("%%PDF-%d.%d\n", doc.major, doc.minor))
    
    local magic_bin = 'PDFW'
    magic_bin = {magic_bin:byte(1,-1)}
-   pdf.fh:write("%")
+   doc.fh:write("%")
    for i,v in ipairs(magic_bin) do
-      pdf.fh:write(string.char(v+128))
+      doc.fh:write(string.char(v+128))
    end
-   pdf.fh:write("\n")
+   doc.fh:write("\n")
 
    --Note that this does not write out the trailer itself, because argument
    --|indirect| is not given.  Writing out the |Catalog| here would not work,
    --because |Info| is only referred to by the trailer, so it would get written
    --out (alongside the trailer) behind |xref|.
-   pdfw.linearize(pdf, pdf.trailer)
+   pdfw.linearize(doc, doc.trailer)
    
-   local startxref = pdf.fh:seek()
-   pdf.fh:write(
+   local startxref = doc.fh:seek()
+   doc.fh:write(
       'xref\n',
-      '0 ', #pdf.xref + 1, "\n",
+      '0 ', #doc.xref + 1, "\n",
       '0000000000 65535 f \n'
    )
-   for id,pos in ipairs(pdf.xref) do
-      pdf.fh:write(string.format("%010d", pos), ' 00000 n \n')
+   for id,pos in ipairs(doc.xref) do
+      doc.fh:write(string.format("%010d", pos), ' 00000 n \n')
    end
    
-   pdf.trailer.Size = #pdf.xref + 1
-   pdf.fh:write("trailer\n", pdfw.linearize(pdf, pdf.trailer), "\n")
+   doc.trailer.Size = #doc.xref + 1
+   doc.fh:write("trailer\n", pdfw.linearize(doc, doc.trailer), "\n")
    
-   pdf.fh:write("startxref\n", startxref, "\n")
-   pdf.fh:write("%%EOF\n")
-   pdf.fh:close()
+   doc.fh:write("startxref\n", startxref, "\n")
+   doc.fh:write("%%EOF\n")
+   doc.fh:close()
    
-   pdf.object_ids, pdf.max_id, pdf.xref, pdf.fh, pdf.trailer.Size = nil, nil, nil, nil, nil
+   doc.object_ids, doc.max_id, doc.xref, doc.fh, doc.trailer.Size = nil, nil, nil, nil, nil
 end
 
-function pdfw.update(pdf, filename, pdfe_doc, prune)
+function pdfw.update(doc, filename, pdfe_doc, prune)
    
-   pdf.pdfe_doc = pdfe_doc -- temporary
-   
+   doc.pdfe_doc = pdfe_doc -- temporary
+
+   --Get the location of the previous xref table.
    local fh = io.open(filename, 'rb')
    fh:seek("end", -40)
    local prev = fh:read("a")
    fh:close()
    _,_,prev = prev:find('startxref%s+(%d+)%s+%%%%EOF')
    
-   pdf.updating = true
-   pdf.object_ids = {}
-   pdf.max_id = pdf.trailer.Size
-   pdf.xref = {}
-   pdf.fh = io.open(filename, 'a+b')
-   pdf.fh:seek("end")
+   doc.updating = true --a parameter for linearize
+   doc.object_ids = {}
+   doc.max_id = doc.trailer.Size
+   doc.xref = {}
+   doc.fh = io.open(filename, 'a+b')
+   doc.fh:seek("end")
    
-   pdfw.linearize(pdf, pdf.trailer)
-   for obj,_ in pairs(updated_objects[pdf.pdfe_doc]) do
+   pdfw.linearize(doc, doc.trailer)
+   for obj,_ in pairs(updated_objects[doc.pdfe_doc]) do
       if original_object_ids[obj] then
-	 pdfw.linearize(pdf, obj, true)
+	 pdfw.linearize(doc, obj, true)
       end
    end
 
-   local startxref = pdf.fh:seek()
-   pdf.fh:write('xref\n',
+   local startxref = doc.fh:seek()
+   doc.fh:write('xref\n',
 		'0 1\n0000000000 65535 f \n')
    
    local function write_xref_section(start_id)
-      while not pdf.xref[start_id] and start_id <= pdf.max_id do
+      while not doc.xref[start_id] and start_id <= doc.max_id do
 	 start_id = start_id + 1
       end
-      if start_id > pdf.max_id then return start_id end
+      if start_id > doc.max_id then return start_id end
 
       local next_id = start_id + 1
-      while pdf.xref[next_id] do next_id = next_id + 1 end
+      while doc.xref[next_id] do next_id = next_id + 1 end
       
-      pdf.fh:write(start_id, ' ', next_id - start_id, "\n")
+      doc.fh:write(start_id, ' ', next_id - start_id, "\n")
       for id = start_id, next_id - 1  do
-	 pdf.fh:write(string.format("%010d", pdf.xref[id]), ' 00000 n \n')
+	 doc.fh:write(string.format("%010d", doc.xref[id]), ' 00000 n \n')
       end
 
       return next_id
    end
       
    local id = 1
-   while id <= pdf.max_id do id = write_xref_section(id) end
-   assert(id == pdf.max_id + 1)
+   while id <= doc.max_id do id = write_xref_section(id) end
+   assert(id == doc.max_id + 1)
    
-   pdf.trailer.Size = id
-   pdf.trailer.Prev = tonumber(prev)
-   pdf.fh:write("trailer\n", pdfw.linearize(pdf, pdf.trailer, false, true), "\n")
+   doc.trailer.Size = id
+   doc.trailer.Prev = tonumber(prev)
+   doc.fh:write("trailer\n", pdfw.linearize(doc, doc.trailer, false, true), "\n")
    
-   pdf.fh:write("startxref\n", startxref, "\n")
+   doc.fh:write("startxref\n", startxref, "\n")
 
-   pdf.fh:write("%%EOF\n")
-   pdf.fh:close()   
-   pdf.updating = nil
+   doc.fh:write("%%EOF\n")
+   doc.fh:close()   
+   doc.updating = nil
 end
 
 do
@@ -587,7 +586,7 @@ do
       --Check that the |page| object indeed belongs to the document.
       root_Pages = page.Parent()
       while root_Pages.Parent do root_Pages = root_Pages.Parent() end
-      assert(root_Pages == pdf.trailer.Root().Pages())
+      assert(root_Pages == doc.trailer.Root().Pages())
       
       --Remove the page from its parent Pages object.  If the modified Pages
       --are empty, remove them from their parent Pages, and so on until the
