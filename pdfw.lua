@@ -55,86 +55,28 @@ do --null
    function pdfw.null(value) return setmetatable({}, metatable_null) end
 end
 
---We only define pdfw.boolean/integer/float for the unlikely situation of an
---indirect object.
-
-do --boolean
-   local metatable_boolean = {
-      pdfw = 'boolean',
+do --indirect: Defined for indirect strings, numbers and booleans
+   local metatable_indirect = {
+      pdfw = 'indirect',
       __index = index_error, __newindex = index_error,
       __call = identity,
-      __tostring = obj_value_tostring,
    }
-   function pdfw.boolean(value)
-      return setmetatable({value = value and true or false}, metatable_boolean)
+   function pdfw.indirect(value)
+      assert(not pdfw.type(value))
+      return setmetatable({value = value}, metatable_indirect)
    end
 end
 
-do --integer
-   local metatable_integer = {
-      pdfw = 'integer',
-      __index = index_error, __newindex = index_error,
-      __call = identity,
-      __tostring = obj_value_tostring,
-   }
-   function pdfw.integer(value)
-      return setmetatable({value = tonumber(value)}, metatable_integer)
-   end
-end
-
-do --float
-   local metatable_float = {
-      pdfw = 'float',
-      __index = index_error, __newindex = index_error,
-      __call = identity,
-      __tostring = obj_value_tostring,
-   }
-   function pdfw.float(value)
-      return setmetatable({value = tonumber(value)}, metatable_float)
-   end
-end
-
-do --name
-   local metatable_name = {
-      pdfw = 'name',
-      __tostring = function(obj)
-	 return '/' .. obj.value:gsub('/', '#2F')
-      end,
-      __call = identity,
-      __index = index_error, __newindex = index_error,
-   }
-   function pdfw.name(value)
-      return setmetatable({value = value}, metatable_name)
-   end
-end
-
-do --string
+do --hex string
    local metatable_string = {
-      pdfw = 'string',
-      __tostring = function(obj)
-	 return table.concat{ hex and '<' or '(', obj.value, hex and '>' or ')' }
-      end,
-      __concat = function(a,b)
-	 local hex_a = type(a) ~= 'string' and a.hex 
-	 local hex_b = type(b) ~= 'string' and b.hex
-	 if not ((hex_a and hex_b) or (not hex_a and not hex_b)) then
-	    error("Cannot concatenate a hex and a non-hex string", 2)
-	 end
-	 return pdfw.string(
-	    (type(a) == 'string' and a or a.value)
-	    ..
-	    (type(b) == 'string' and b or b.value),
-	    hex_a
-	 )
-      end,
+      pdfw = 'hex_string',
       __index = index_error, __newindex = index_error,
       __call = identity,
    }
-   function pdfw.string(value, hex)
-      return setmetatable({value = value, hex = hex}, metatable_string)
+   function pdfw.hex_string(value)
+      return setmetatable({value = value}, metatable_string)
    end
 end   
-
 
 do --array & dictionary
 
@@ -254,6 +196,9 @@ do --reference
 	 if not referenced_object then
 	    referenced_object = pdfw.from_pdfe_triplet(
 	       pdfe_doc, pdfe.getfromreference(pdfe_reference))
+	    if not pdfw.type(referenced_pdfw_obj) then
+	       referenced_pdfw_obj = pdfw.indirect(referenced_pdfw_obj)
+	    end
 	    referenced_objects_for_doc[referenced_pdfe_obj_id] = referenced_object
 	    original_object_ids[referenced_object] = {
 	       pdfe_doc = pdfe_doc, id = referenced_pdfe_obj_id }
@@ -273,6 +218,9 @@ do --reference
    end
 
    function pdfw.reference(referenced_pdfw_obj)
+      if not pdfw.type(referenced_pdfw_obj) then
+	 referenced_pdfw_obj = pdfw.indirect(referenced_pdfw_obj)
+      end
       return setmetatable({}, {
 	    pdfw = "reference",
 	    __index = ref_index_error, __newindex = ref_index_error,
@@ -289,8 +237,12 @@ do --pdfw.from_pdfe_triplet
       val, --boolean
       val, --integer
       val, --float
-      function(pdfe_doc, value) return pdfw.name(value) end,
-      function(pdfe_doc, value, hex) return pdfw.string(value, hex) end,
+      function(pdfe_doc, value) return '/' .. value:gsub('/', '#2F') end,
+      function(pdfe_doc, value, hex)
+	 if hex then return pdfw.hex_string(value) 
+	 elseif value:sub(1,1) == '/' then return '\\057' .. value:sub(2)
+	 else return value end
+      end,
       pdfw.from_pdfe_array, ['pdfe.array'] = pdfw.from_pdfe_array,
       pdfw.from_pdfe_dictionary, ['pdfe.dictionary'] = pdfw.from_pdfe_dictionary,
       pdfw.from_pdfe_stream, ['pdfe.stream'] = pdfw.from_pdfe_stream,
@@ -366,11 +318,16 @@ do --linearize
       --The following four are both for primitive and pdfw objects.
       boolean = tostring,
       number = tostring,
-      name = tostring,
       --Note that '/foo' will end up as a name.  This is intentional, so that
       --names can be given simply as strings.  If you need a string that starts
-      --with a slash, use either octal \057 or wrap the string in pdfw.string.
-      string = tostring,
+      --with a slash, start it with either octal \057 or use pdfw.string.  And
+      --if you need a name that contains a slash (as a non-first character),
+      --replace the slash with '#2F'.
+      string = function(s)
+	 if s:sub(1,1) == '/' then return s
+	 else return table.concat{ '(', s, ')' } end
+      end,
+      hex_string = function(obj) return table.concat{ '<', obj.value, '>' } end,
       array = function(obj, pdf)
 	 local child_reprs = { [0] = '[' }
 	 for i, child_obj in ipairs(obj) do
@@ -417,6 +374,9 @@ do --linearize
 	 local referenced_pdfw_object = obj()
 	 pdfw.linearize(pdf, referenced_pdfw_object, true)
 	 return pdf.object_ids[referenced_pdfw_object] .. ' 0 R'
+      end,
+      indirect = function(obj, pdf)
+	 return pdfw.linearize(pdf, obj.value)
       end,
    }
    
@@ -567,7 +527,7 @@ function pdfw.update(pdf, filename, pdfe_doc, prune)
    assert(id == pdf.max_id + 1)
    
    pdf.trailer.Size = id
-   pdf.trailer.Prev = prev
+   pdf.trailer.Prev = tonumber(prev)
    pdf.fh:write("trailer\n", pdfw.linearize(pdf, pdf.trailer, false, true), "\n")
    
    pdf.fh:write("startxref\n", startxref, "\n")
@@ -575,6 +535,65 @@ function pdfw.update(pdf, filename, pdfe_doc, prune)
    pdf.fh:write("%%EOF\n")
    pdf.fh:close()   
    pdf.updating = nil
+end
+
+do
+   local function get_pages_from_Pages(p, result)
+      if p.Type == '/Page' then
+	 table.insert(result, p)
+      else
+	 for i,kid in ipairs(p.Kids) do
+	    get_pages_from_Pages(kid(), result)
+	 end
+      end
+   end
+   function pdfw.get_pages(doc)
+      result = {}
+      root_Pages = doc.trailer.Root().Pages()
+      get_pages_from_Pages(root_Pages, result)
+      return result
+   end 
+end
+
+do
+   local function remove_from_pages(obj, root)
+      if obj == root then return end
+      local function next_remove() end
+      parent = obj.Parent()
+      kids = parent.Kids
+      for i, kid in ipairs(kids) do
+	 if kid() == obj then
+	    table.remove(kids, i)
+	    parent.Count = parent.Count - 1
+	    if parent.Count == 0 then
+	       next_remove = function()
+		  remove_from_pages(parent, root)
+	       end
+	    else
+	       while parent.Parent do
+		  parent = parent.Parent()
+		  parent.Count = parent.Count - 1
+	       end
+	    end
+	    break
+	 end
+      end
+      next_remove()
+   end
+
+   function pdfw.remove_page(doc, page)
+      assert(page.Type == '/Page')
+      
+      --Check that the |page| object indeed belongs to the document.
+      root_Pages = page.Parent()
+      while root_Pages.Parent do root_Pages = root_Pages.Parent() end
+      assert(root_Pages == pdf.trailer.Root().Pages())
+      
+      --Remove the page from its parent Pages object.  If the modified Pages
+      --are empty, remove them from their parent Pages, and so on until the
+      --root Pages object.
+      remove_from_pages(page, root_Pages)
+   end
 end
 
 return pdfw
