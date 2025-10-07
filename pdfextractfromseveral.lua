@@ -4,12 +4,12 @@
 
 pdf = require('luapdfrw')
 
-infile1, page1, infile2, page2, outfile = table.unpack(arg)
+infile1, pagen1, infile2, pagen2, outfile = table.unpack(arg)
 
 indoc1 = pdf.open(infile1)
 indoc2 = pdf.open(infile2)
 
 outdoc = pdf.new()
-outdoc:append_page(indoc1, page1)
-outdoc:append_page(indoc2, page2)
+outdoc:insert_page(indoc1:get_page(pagen1))
+outdoc:insert_page(indoc1:get_page(pagen2))
 outdoc:save(outfile)

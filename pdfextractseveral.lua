@@ -14,15 +14,21 @@ outfile_prefix = table.remove(arg,1)
 --arg now contains only the page numbers (as strings)
 
 indoc = pdf.open(infile)
+pages = indoc:get_pages()
 
 for i, page_n in ipairs(arg) do
    outdoc = pdf.new()
-   outdoc:append_page(indoc, page_n)
+   outdoc:insert_page(
+      --We need to insert the copy for the pruning to work. Inserting a page
+      --into another document changes its parent, so it is (in a way) not a
+      --part of the source document any more.
+      pdf.copy(pages[tonumber(page_n)])
+   )
    outdoc:save(outfile_prefix .. page_n .. '.pdf')
 end
 
+--Pruning is virtually instantaneous, as the PDF is incrementally updated.
 if prune then
-   pages = indoc:get_pages()
    for i, page_n in ipairs(arg) do
       indoc:remove_page(pages[tonumber(page_n)])
    end
