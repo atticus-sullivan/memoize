@@ -6,8 +6,10 @@ local pdf = require('luapdfrw')
 
 infile, page_n, outfile = table.unpack(arg)
 
-indoc = pdfe.open(infile)
+indoc = pdf.open(infile)
 outdoc = pdf.new()
+outdoc.major, outdoc.minor = indoc.major, indoc.minor
 
-outdoc:append_page(indoc, page_n)
+page = indoc:get_page(tonumber(page_n))
+outdoc:insert_page(page)
 outdoc:save(outfile)

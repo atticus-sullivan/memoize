@@ -13,4 +13,4 @@ for i, page_n in ipairs(arg) do
    doc:remove_page(pages[tonumber(page_n)])
 end
 
-doc:update(filename)
+doc:update()

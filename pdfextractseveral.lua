@@ -26,5 +26,5 @@ if prune then
    for i, page_n in ipairs(arg) do
       indoc:remove_page(pages[tonumber(page_n)])
    end
-   indoc:update(infile, doc)
+   indoc:update()
 end
