@@ -1,5 +1,7 @@
 #!/usr/bin/env texlua
 
+--\section{Utilities}
+
 do
    local function _inspect_table(x, levels, indent, received_done)
       -- done prevents infinite regress
@@ -30,8 +32,6 @@ do
    end
 end
 
-local pdfw = {}
-
 local function index_error() error("Invalid index", 2) end
 local function identity(obj) return obj end
 local function obj_value_tostring(obj) return tostring(obj.value) end
@@ -41,21 +41,16 @@ local function copy_table(t)
    return c
 end   
 
-local referenced_objects =  setmetatable({}, { __mode = 'k' } )
-local original_object_ids = setmetatable({}, { __mode = 'k' } )
-local updated_objects =     setmetatable({}, { __mode = 'k' } )
+--\section{Types}
 
-local function get_original_object_id(obj)
-   local t = original_object_ids[obj]
-   if t then
-      return table.unpack(t)
-   else
-      return nil, nil
-   end
-end
+--Table |pdfw| holds the public functions, except the functions of the document
+--``class'' |mt_pdfw_doc|, which are held by |pdfw_doc|.
+local pdfw = {}
+local pdfw_doc = {}
+local mt_pdfw_doc = { __index = pdfw_doc }
 
---Assigning nil to a table removes the entry, so we need this to put a null
---value into a dict or array, don't we?
+--Assigning nil to a table removes the entry, so we need an explicit null type
+--to put a null value into a dict or array, don't we?
 
 do --null
    local metatable_null = {
@@ -67,17 +62,9 @@ do --null
    function pdfw.null(value) return setmetatable({}, metatable_null) end
 end
 
-do --indirect: Defined for indirect strings, numbers and booleans
-   local metatable_indirect = {
-      pdfw_type = 'indirect',
-      __index = index_error, __newindex = index_error,
-      __call = identity,
-   }
-   function pdfw.indirect(value)
-      assert(not pdfw.type(value))
-      return setmetatable({value = value}, metatable_indirect)
-   end
-end
+--Simple PDF types are mapped directly to primitive Lua types: booleans to
+--booleans, integers \& floats to numbers, and names and non-hex strings to
+--strings.
 
 do --hex string
    local metatable_string = {
@@ -89,6 +76,9 @@ do --hex string
       return setmetatable({value = value}, metatable_string)
    end
 end   
+
+--Set by arrays and dictionaries, used in |linearize| and |update|.
+local updated_objects =     setmetatable({}, { __mode = 'k' } )
 
 do --array & dictionary
 
@@ -213,6 +203,20 @@ do --stream
    
 end
 
+--Set and used when resolving references.
+local referenced_objects =  setmetatable({}, { __mode = 'k' } )
+
+--Set when resolving references, used in |linearize| and |update|.
+local original_object_ids = setmetatable({}, { __mode = 'k' } )
+local function get_original_object_id(obj)
+   local t = original_object_ids[obj]
+   if t then
+      return table.unpack(t)
+   else
+      return nil, nil
+   end
+end
+
 do --reference
 
    local function ref_index_error()
@@ -263,6 +267,27 @@ do --reference
 
 end --reference
 
+--This type does not exist in pdfe. We define it to support indirect strings,
+--numbers and booleans.
+
+do --indirect
+   local metatable_indirect = {
+      pdfw_type = 'indirect',
+      __index = index_error, __newindex = index_error,
+      __call = identity,
+   }
+   function pdfw.indirect(value)
+      assert(not pdfw.type(value))
+      return setmetatable({value = value}, metatable_indirect)
+   end
+end
+
+--Function |pdfw.from_pdfe_triplet| is the bridge between pdfe (the reader
+--library) and this module.  It wraps |type, value, detail| triplets returned
+--by |pdfe.gefrom[dictionary/array/reference]| to |pdfw| objects defined
+--above. (Ok, it does not wrap the simple types like integers and strings.
+--Those become Lua numbers and strings, etc.)
+
 do --pdfw.from_pdfe_triplet
    local val = function(pdfe_doc, value) return value end
    local distributor = {
@@ -293,11 +318,16 @@ do --pdfw.from_pdfe_triplet
    end
 end
 
+--Returns the pdfw type of the object, as a string, or |nil|, if the given
+--argument is not a pdfw object.
 function pdfw.type(obj)
    mt = getmetatable(obj)
    return (mt and mt.pdfw_type) or type(obj)
 end
 
+---Function |pdfw.copy| makes a \emph{shallow} copy of the given object.  For
+---example, if we're copying a dictionary (say, Pages) containing an array
+---(Kids), the copy will contain the same array.
 do --copy
    local distributor = {
       hex_string = function(obj) return pdfw.hex_string(obj.value) end,
@@ -311,12 +341,27 @@ do --copy
       table = copy_table,
       --reference is immutable
    }
-   --This function makes a *shallow* copy!
    function pdfw.copy(obj)
       f = distributor[pdfw.type(obj)] or distributor[type(obj)] or identity
       return f(obj)
    end
 end
+
+--\section{Linearization}
+
+--Function |pdfw.linearize| recurses into the object tree, starting with the
+--given object, writing all indirect objects it finds (for the first time) into
+--the output file (specified by file handle |doc.fh|). Argument |indirect| may
+--be specified to determine whether the given object should be written as well
+--(if not, its linearization is returned).
+--
+--Several fields in the document table |doc| must be initialized before calling
+--|linearize|: |.object_ids| (will hold the object ids assigned during
+--linearization), |.max_id| (the current maximum object id), |.xref| (a table
+--mapping indirect object ids to the object position in the output file), and
+--|.fh| (the file handle of an opened, writeable file).
+--
+--Perpahs this function should not be public \dots
 
 do --linearize
 
@@ -429,10 +474,10 @@ do --linearize
    
 end --linearize
 
-local pdfw_doc = {}
-local mt_pdfw_doc = {
-   __index = pdfw_doc,
-}
+--\section{Creating, opening, saving and updating PDF files}
+
+--Create a document given a trailer dictionary. If no trailer is given, create
+--an empty document with a rudimentary trailer, Catalog and root Pages object.
 
 function pdfw.new(trailer)
    trailer = trailer or
@@ -458,6 +503,8 @@ function pdfw.new(trailer)
    return setmetatable(doc, mt_pdfw_doc)
 end
 
+--Open (via pdfe) an existing PDF document.
+
 function pdfw.open(filename)
    local pdfe_doc = pdfe.open(filename)
    local trailer = pdfw.from_pdfe_dictionary(pdfe_doc, pdfe.gettrailer(pdfe_doc))
@@ -473,9 +520,14 @@ function pdfw.open(filename)
    return setmetatable(doc, mt_pdfw_doc)
 end
 
+--Close the document. Calling this function only makes sense for |open|ed (not
+--|new|) documents, and even then it is usually probably unnecessary.
+
 function pdfw_doc.close(doc)
    if doc.pdfe_doc then doc.pdfe_doc.close() end
 end
+
+--Save the document from scratch.
 
 function pdfw_doc.save(doc, filename)
    
@@ -486,7 +538,7 @@ function pdfw_doc.save(doc, filename)
    
    doc.fh:write(string.format("%%PDF-%d.%d\n", doc.major, doc.minor))
    
-   local magic_bin = 'PDFW'
+   local magic_bin = 'LuaPDFrw'
    magic_bin = {magic_bin:byte(1,-1)}
    doc.fh:write("%")
    for i,v in ipairs(magic_bin) do
@@ -521,6 +573,7 @@ function pdfw_doc.save(doc, filename)
 end
 
 --Perform an incremental update of the PDF file.
+
 function pdfw_doc.update(doc, prune)
 
    assert(doc.filename)
@@ -584,7 +637,12 @@ function pdfw_doc.update(doc, prune)
    doc.updating = nil
 end
 
---A helper which produces an array of Page objects from the Page tree.
+--\section{Pages}
+
+--This module knows almost nothing about the high-level content of a PDF file,
+--the exception being the page structure functions defined in this section.
+
+--Enumerate pages, i.e. produce an array of Page objects from the Page tree.
 do
    local function get_pages_from_Pages(p, result)
       if p.Type == '/Page' then
@@ -603,6 +661,7 @@ do
    end 
 end
 
+--Get a specific page by number.
 do
    local function get_page(Pages, page_n)
       for i, kid_ref in ipairs(Pages.Kids) do
@@ -631,6 +690,24 @@ do
       return get_page(root_Pages, page_n)
    end
 end
+
+--Function |insert_page| inserts the given |page| object into the Page tree so
+--that it becomes page number |page_n|.  The argument signature of this
+--function is as for |table.insert|, and it also shifts the following pages in
+--the same manner.  The maximum number of member of the Kids array in a Pages
+--object is determined by |doc.max_kids|.
+--
+--A note on inherited Page attributes. This function is safe to use if the
+--target document relies on inheritance, but it does not check whether the
+--inserted page inherited some attributes in the source document, so the
+--inserted page might wrongly inherit some attributes from the target
+--document. The workaround is to explicitly assign all the attributes to the
+--inserted page.
+--
+--This module was written to support extern extraction in TeX package Memoize.
+--This is the only function which is not strictly used by that package, which
+--only creates single-page PDFs. But having a |remove_page| supporting nested
+--Pages, it seemed a shame not to support them in |insert_page| as well.
 
 do
    local function prune_ancestors(Pages, Catalog, path, max_kids)
@@ -669,12 +746,6 @@ do
       return next_f()
    end
 
-   --A note on inherited Page attributes. This function is safe to use if the
-   --target document relies on inheritance, but it does not check whether the
-   --inserted page inherited some attributes in the source document, so the
-   --inserted page might wrongly inherit some attributes from the target
-   --document. The workaround is to explicitly assign all the attributes to the
-   --inserted page.
    function pdfw_doc.insert_page(doc, page_n, page)
       local Catalog = doc.trailer.Root()
       root_Pages = Catalog.Pages()
@@ -688,6 +759,7 @@ do
                1 and %d (the number of pages + 1)")
 	     :format(page_n, root_Pages.Count + 1))
       if root_Pages.Count == 0 then
+	 --This is the only part of the function used by Memoize.
 	 table.insert(root_Pages.Kids, pdfw.reference(page))
 	 page.Parent = pdfw.reference(root_Pages)
 	 root_Pages.Count = 1
@@ -707,6 +779,8 @@ do
       end
    end
 end
+
+--Remove the given page object from the Page tree.
 
 do
    local function remove_from_pages(obj, root)
