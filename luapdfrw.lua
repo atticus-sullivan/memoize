@@ -9,8 +9,7 @@ do
       if levels ~= 0 and (not done or not done[x]) then
 	 done[x] = true
 	 for k,v in pairs(x) do
-	    local mt = getmetatable(v) and " meta" .. tostring(getmetatable(v)) or ''
-	    print(indent .. tostring(k), tostring(v))-- .. mt)
+	    print(indent .. tostring(k), tostring(v))
 	    if type(v) == 'table' then
 	       _inspect_table(v, levels-1, indent .. '  ', done)
 	    end
@@ -20,8 +19,7 @@ do
    function inspect(x, levels, indent)
       indent = indent or ''
       levels = levels or -1
-      local mt = getmetatable(x) and " meta" .. tostring(getmetatable(x)) or ''
-      print(indent .. tostring(x))-- .. mt)
+      print(indent .. tostring(x))
       if type(x) == 'table' then
 	 _inspect_table(x, levels, indent .. '| ', {})
       elseif pdfe.type(x) == 'pdfe.dictionary' then
@@ -34,12 +32,11 @@ end
 
 local function index_error() error("Invalid index", 2) end
 local function identity(obj) return obj end
-local function obj_value_tostring(obj) return tostring(obj.value) end
 local function copy_table(t)
-   c = {}
+   local c = {}
    for k,v in pairs(t) do c[k]=v end
    return c
-end   
+end
 
 --\section{Types}
 
@@ -59,7 +56,7 @@ do --null
       __tostring = function() return 'null' end,
       __call = identity,
    }
-   function pdfw.null(value) return setmetatable({}, metatable_null) end
+   function pdfw.null() return setmetatable({}, metatable_null) end
 end
 
 --Simple PDF types are mapped directly to primitive Lua types: booleans to
@@ -75,7 +72,7 @@ do --hex string
    function pdfw.hex_string(value)
       return setmetatable({value = value}, metatable_string)
    end
-end   
+end
 
 --Set by arrays and dictionaries, used in |linearize| and |update|.
 local updated_objects =     setmetatable({}, { __mode = 'k' } )
@@ -92,7 +89,7 @@ do --array & dictionary
    
    local mt_index = function(tbl, key, pdfe_doc, legal_index_f)
       assert(legal_index_f(key))
-      value = tbl[key]
+      local value = tbl[key]
       if is_pdfe_triplet(value) then
 	 value = pdfw.from_pdfe_triplet(pdfe_doc, table.unpack(value))
 	 tbl[key] = value
@@ -109,7 +106,7 @@ do --array & dictionary
    
    local mt_pairs = function(tbl, pdfe_doc, pairs_f)
       for key, value in pairs_f(tbl) do
-	 if is_pdfe_triplet(value) and not tbl[key] then
+	 if is_pdfe_triplet(value) then
 	    tbl[key] = pdfw.from_pdfe_triplet(pdfe_doc, table.unpack(value))
 	 end
       end
@@ -125,53 +122,55 @@ do --array & dictionary
 
    function pdfw.from_pdfe_array(pdfe_doc, pdfe_obj)
       assert(pdfe.type(pdfe_doc) == 'pdfe' and pdfe.type(pdfe_obj) == 'pdfe.array')
-      local tbl = pdfe.arraytotable(pdfe_obj)
-      for k, pdfe_triplet in ipairs(tbl) do
-	 setmetatable(pdfe_triplet, metatable_pdfe_triplet)
-      end
       --A complication for |pdfw.copy|: a copy needs the local pdfe_doc, but
       --has to rely on a copy of |tbl|.  So it will get a new metatable with a
       --copy of the original |tbl| in variable |tbl|.
+      --
+      --|pdfe_doc| is bound by the argument of |from_pdfe_array|.
       local function mtf(tbl)
 	 return {
 	    pdfw_type = "array",
-	    __index = function(t,k)
+	    __index = function(_t,k)
 	       return mt_index(tbl,k,pdfe_doc,is_legal_array_key) end,
-	    __newindex = function(t,k,v) 
+	    __newindex = function(t,k,v)
 	       return mt_newindex(t,tbl,k,v,pdfe_doc,is_legal_array_key) end,
-	    __pairs = function(t)
+	    __pairs = function()
 	       return mt_pairs(tbl,pdfe_doc,ipairs) end,
-	    __len = function(t) return #tbl end,
+	    __len = function() return #tbl end,
 	    __call = function(obj, copy)
 	       if copy then return setmetatable({}, mtf(copy_table(tbl)))
 	       else return obj end
 	    end,
 	 }
+      end
+      local tbl = pdfe.arraytotable(pdfe_obj)
+      for _k, pdfe_triplet in ipairs(tbl) do
+	 setmetatable(pdfe_triplet, metatable_pdfe_triplet)
       end
       return setmetatable({}, mtf(tbl))
    end
 
    function pdfw.from_pdfe_dictionary(pdfe_doc, pdfe_obj)
       assert(pdfe.type(pdfe_doc) == 'pdfe' and pdfe.type(pdfe_obj) == 'pdfe.dictionary')
-      local tbl = pdfe.dictionarytotable(pdfe_obj)
-      for k, pdfe_triplet in pairs(tbl) do
-	 setmetatable(pdfe_triplet, metatable_pdfe_triplet)
-      end
       --The same complication for |pdfw.copy| as for arrays.
       local function mtf(tbl)
 	 return {
 	    pdfw_type = "dictionary",
-	   __index = function(t,k) return
+	   __index = function(_t,k) return
 		 mt_index(tbl,k,pdfe_doc,is_legal_dictionary_key) end,
 	   __newindex = function(t,k,v) return
 		 mt_newindex(t,tbl,k,v,pdfe_doc,is_legal_dictionary_key) end,
-	   __pairs = function(t)
+	   __pairs = function()
 	      return mt_pairs(tbl,pdfe_doc,pairs) end,
 	    __call = function(obj, copy)
 	       if copy then return setmetatable({}, mtf(copy_table(tbl)))
 	       else return obj end
 	    end,
 	 }
+      end
+      local tbl = pdfe.dictionarytotable(pdfe_obj)
+      for _k, pdfe_triplet in pairs(tbl) do
+	 setmetatable(pdfe_triplet, metatable_pdfe_triplet)
       end
       return setmetatable({}, mtf(tbl))
    end
@@ -180,7 +179,7 @@ end --array & dictionary
 
 do --stream
    
-   metatable_stream = {
+   local metatable_stream = {
       pdfw_type = 'stream',
       __index = index_error, __newindex = index_error,
    }
@@ -226,17 +225,13 @@ do --reference
    
    do
       
-      local function mt_call(obj, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
-	 --todo: simplify once we open the pdfe doc within pdfw
+      local function mt_call(_obj, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
 	 referenced_objects[pdfe_doc] = referenced_objects[pdfe_doc] or {}
 	 local referenced_objects_for_doc = referenced_objects[pdfe_doc]
 	 local referenced_object = referenced_objects_for_doc[referenced_pdfe_obj_id]
 	 if not referenced_object then
 	    referenced_object = pdfw.from_pdfe_triplet(
 	       pdfe_doc, pdfe.getfromreference(pdfe_reference))
-	    if not pdfw.type(referenced_pdfw_obj) then
-	       referenced_pdfw_obj = pdfw.indirect(referenced_pdfw_obj)
-	    end
 	    referenced_objects_for_doc[referenced_pdfe_obj_id] = referenced_object
 	    original_object_ids[referenced_object] = { pdfe_doc, referenced_pdfe_obj_id }
 	 end
@@ -261,7 +256,7 @@ do --reference
       return setmetatable({}, {
 	    pdfw_type = "reference",
 	    __index = ref_index_error, __newindex = ref_index_error,
-	    __call = function(obj) return referenced_pdfw_obj end,
+	    __call = function() return referenced_pdfw_obj end,
       })
    end
 
@@ -289,15 +284,15 @@ end
 --Those become Lua numbers and strings, etc.)
 
 do --pdfw.from_pdfe_triplet
-   local val = function(pdfe_doc, value) return value end
+   local val = function(_pdfe_doc, value) return value end
    local distributor = {
       function() return pdfw.null() end, --null
       val, --boolean
       val, --integer
       val, --float
-      function(pdfe_doc, value) return '/' .. value:gsub('/', '#2F') end,
-      function(pdfe_doc, value, hex)
-	 if hex then return pdfw.hex_string(value) 
+      function(_pdfe_doc, value) return '/' .. value:gsub('/', '#2F') end,
+      function(_pdfe_doc, value, hex)
+	 if hex then return pdfw.hex_string(value)
 	 elseif value:sub(1,1) == '/' then return '\\057' .. value:sub(2)
 	 else return value end
       end,
@@ -310,7 +305,7 @@ do --pdfw.from_pdfe_triplet
       if pdfe.type(pdfe_doc) ~= 'pdfe' then
 	 error("The first argument should be a pdf document object", 2)
       end
-      f = distributor[type]
+      local f = distributor[type]
       if not f then
 	 error("object type not found in distributor", 2)
       end
@@ -321,7 +316,7 @@ end
 --Returns the pdfw type of the object, as a string, or |nil|, if the given
 --argument is not a pdfw object.
 function pdfw.type(obj)
-   mt = getmetatable(obj)
+   local mt = getmetatable(obj)
    return (mt and mt.pdfw_type) or type(obj)
 end
 
@@ -342,7 +337,7 @@ do --copy
       --reference is immutable
    }
    function pdfw.copy(obj)
-      f = distributor[pdfw.type(obj)] or distributor[type(obj)] or identity
+      local f = distributor[pdfw.type(obj)] or distributor[type(obj)] or identity
       return f(obj)
    end
 end
@@ -365,7 +360,7 @@ end
 
 do --linearize
 
-   local linearize, distribute, distributor
+   local linearize, distributor
    
    linearize = function(doc, obj, indirect)
       if indirect then
@@ -432,7 +427,6 @@ do --linearize
 	 local child_reprs = { [0] = '<<' }
 	 local i = 1
 	 for key, child_obj in pairs(obj) do
-	    child_obj = obj[key] --necessary! but why?
 	    child_reprs[i] = '/' .. key .. ' ' .. pdfw.linearize(doc, child_obj)
 	    i = i + 1
 	 end
@@ -541,7 +535,7 @@ function pdfw_doc.save(doc, filename)
    local magic_bin = 'LuaPDFrw'
    magic_bin = {magic_bin:byte(1,-1)}
    doc.fh:write("%")
-   for i,v in ipairs(magic_bin) do
+   for _i,v in ipairs(magic_bin) do
       doc.fh:write(string.char(v+128))
    end
    doc.fh:write("\n")
@@ -558,7 +552,7 @@ function pdfw_doc.save(doc, filename)
       '0 ', #doc.xref + 1, "\n",
       '0000000000 65535 f \n'
    )
-   for id,pos in ipairs(doc.xref) do
+   for _id,pos in ipairs(doc.xref) do
       doc.fh:write(string.format("%010d", pos), ' 00000 n \n')
    end
    
@@ -585,6 +579,7 @@ function pdfw_doc.update(doc, prune)
    fh:seek("end", -40)
    local prev = fh:read("a")
    fh:close()
+   local _
    _,_,prev = prev:find('startxref%s+(%d+)%s+%%%%EOF')
    
    doc.updating = true --a parameter for linearize
@@ -633,7 +628,7 @@ function pdfw_doc.update(doc, prune)
    doc.fh:write("startxref\n", startxref, "\n")
 
    doc.fh:write("%%EOF\n")
-   doc.fh:close()   
+   doc.fh:close()
    doc.updating = nil
 end
 
@@ -648,31 +643,31 @@ do
       if p.Type == '/Page' then
 	 table.insert(result, p)
       else
-	 for i,kid in ipairs(p.Kids) do
+	 for _i,kid in ipairs(p.Kids) do
 	    get_pages_from_Pages(kid(), result)
 	 end
       end
    end
    function pdfw_doc.get_pages(doc)
-      result = {}
-      root_Pages = doc.trailer.Root().Pages()
+      local result = {}
+      local root_Pages = doc.trailer.Root().Pages()
       get_pages_from_Pages(root_Pages, result)
       return result
-   end 
+   end
 end
 
 --Get a specific page by number.
 do
    local function get_page(Pages, page_n)
       for i, kid_ref in ipairs(Pages.Kids) do
-	 local kid = kid_ref()
-	 local kid_is_page = kid.Type == '/Page'
-	 page_n = page_n - (kid_is_page and 1 or kid.Count)
+	 local kid_obj = kid_ref()
+	 local kid_is_page = kid_obj.Type == '/Page'
+	 page_n = page_n - (kid_is_page and 1 or kid_obj.Count)
 	 if page_n <= 0 then
 	    if kid_is_page then
-	       return kid, Pages, {i}
+	       return kid_obj, Pages, {i}
 	    else
-	       local kid, parent, path = get_page(kid, page_n + kid.Count)
+	       local kid, parent, path = get_page(kid_obj, page_n + kid_obj.Count)
 	       table.insert(path, 1, i)
 	       return kid, parent, path
 	    end
@@ -715,15 +710,15 @@ do
       local n_kids = #Kids
       if n_kids <= max_kids then return end
       
-      right_Pages = pdfw.copy(Pages)
+      local right_Pages = pdfw.copy(Pages)
       right_Pages.Kids = {}
       
       local half = n_kids // 2
       right_Pages.Count = n_kids - half
       Pages.Count = half
 
-      left_Kids = Pages.Kids
-      right_Kids = right_Pages.Kids
+      local left_Kids = Pages.Kids
+      local right_Kids = right_Pages.Kids
       for i = half+1, n_kids do
 	 table.insert(right_Kids, left_Kids[i])
 	 left_Kids[i] = nil
@@ -736,7 +731,7 @@ do
 	 table.insert(parent.Kids, i+1, pdfw.reference(right_Pages))
 	 next_f = function() prune_ancestors(parent, Catalog, path, max_kids) end
       else
-	 new_root_Pages = {
+	 local new_root_Pages = {
 	    Type = '/Pages',
 	    Count = Pages.Count + right_Pages.Count,
 	    Kids = { pdfw.reference(Pages), pdfw.reference(right_Pages) }
@@ -748,7 +743,7 @@ do
 
    function pdfw_doc.insert_page(doc, page_n, page)
       local Catalog = doc.trailer.Root()
-      root_Pages = Catalog.Pages()
+      local root_Pages = Catalog.Pages()
       if type(page_n) ~= 'number' and pdfw.type(page_n) then
 	 page = page_n
 	 page_n = root_Pages.Count + 1
@@ -767,7 +762,7 @@ do
 	 --Insert to the right (offset=1) or to the left (offset=0)?
 	 local offset = (page_n == root_Pages.Count + 1) and 1 or 0
 	 local _kid, parent, path = doc:get_page(page_n - offset)
-	 i = table.remove(path)
+	 local i = table.remove(path)
 	 table.insert(parent.Kids, i + offset, pdfw.reference(page))
 	 local p = parent
 	 while p do
@@ -786,8 +781,8 @@ do
    local function remove_from_pages(obj, root)
       if obj == root then return end
       local function next_remove() end
-      parent = obj.Parent()
-      kids = parent.Kids
+      local parent = obj.Parent()
+      local kids = parent.Kids
       for i, kid in ipairs(kids) do
 	 if kid() == obj then
 	    table.remove(kids, i)
@@ -812,7 +807,7 @@ do
       assert(page.Type == '/Page')
       
       --Check that the |page| object indeed belongs to the document.
-      root_Pages = page.Parent()
+      local root_Pages = page.Parent()
       while root_Pages.Parent do root_Pages = root_Pages.Parent() end
       assert(root_Pages == doc.trailer.Root().Pages())
       
