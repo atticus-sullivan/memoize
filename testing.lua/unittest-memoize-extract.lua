@@ -400,7 +400,7 @@ describe("memoize-extract.lua", function()
 			local file = mock_file()
 			local new_mmz = { { "line1" }, { "line2" }, { "line3" } }
 			extract.write_new_mmz(file, new_mmz)
-			expect.equal(file.content, "line1\nline2\nline3")
+			expect.equal(file.content, "line1\nline2\nline3\n")
 		end)
 
 		it("should handle an empty new_mmz array", function()
@@ -414,14 +414,14 @@ describe("memoize-extract.lua", function()
 			local file = mock_file()
 			local new_mmz = { { "line1", nil }, { "line2", nil }, { "line3", nil } }
 			extract.write_new_mmz(file, new_mmz)
-			expect.equal(file.content, "line1\nline2\nline3")
+			expect.equal(file.content, "line1\nline2\nline3\n")
 		end)
 
 		it("should handle page numbers in the second element of the line tuples", function()
 			local file = mock_file()
 			local new_mmz = { { "line1", 4 }, { "line2" , 2}, { "line3" , 5} }
 			extract.write_new_mmz(file, new_mmz)
-			expect.equal(file.content, "line1\nline2\nline3")
+			expect.equal(file.content, "line1\nline2\nline3\n")
 		end)
 	end)
 
