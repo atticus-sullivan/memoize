@@ -700,7 +700,7 @@ do
 	---Marks the log as complete
 	function logging:close()
 		if self.file then
-			self.file:write("\\endinput")
+			self.file:write("\\endinput\n")
 			self.file:close()
 
 			-- avoid working with the closed file at all cost
@@ -729,7 +729,7 @@ do
 		if self.file then
 			short = short:gsub("\\", "\\string\\")
 			long  = long:gsub("\\", "\\string\\")
-			self.file:write(ERROR[format]{short=short, long=long, package_name=package_name})
+			self.file:write(ERROR[format]{short=short, long=long, package_name=package_name},"\n")
 		end
 		-- set the exitcode this way
 		exit.succ = exit.error
@@ -747,7 +747,7 @@ do
 		end
 		if self.file then
 			text = text:gsub("\\", "\\")
-			self.file:write(WARNING[format]{text=text, texindent=self.texindent, package_name=self.package_name})
+			self.file:write(WARNING[format]{text=text, texindent=self.texindent, package_name=self.package_name},"\n")
 		end
 		-- set the exitcode this way
 		exit.succ = exit.warn
@@ -765,7 +765,7 @@ do
 		end
 		if self.file then
 			text = text:gsub("\\", "\\")
-			self.file:write(INFO[format]{text=text, texindent=self.texindent, package_name=self.package_name})
+			self.file:write(INFO[format]{text=text, texindent=self.texindent, package_name=self.package_name},"\n")
 		end
 	end
 	logging.info = logging._info
@@ -1155,10 +1155,9 @@ end
 ---@param mmz file* file handle to which the content of the new mmz file should be written to
 ---@param new_mmz [string, integer?][] data to be inserted later into the new mmz file (elements are also referenced by pages elements -> might change
 local function write_new_mmz(mmz, new_mmz)
-	local first = true
+	--SŽ change: \endinput must be followed by \n for the tests to pass
 	for _, line in ipairs(new_mmz) do
-		mmz:write(not first and "\n" or "", line[1])
-		first = false
+		mmz:write(line[1], "\n")
 	end
 end
 
