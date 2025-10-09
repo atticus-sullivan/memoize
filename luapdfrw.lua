@@ -1,5 +1,7 @@
 #!/usr/bin/env texlua
 
+--luacheck: read_globals pdfe (loaded by texlua)
+
 --\section{Utilities}
 
 do
@@ -16,6 +18,7 @@ do
 	 end
       end
    end
+   --luacheck: globals inspect (intentionally exported)
    function inspect(x, levels, indent)
       indent = indent or ''
       levels = levels or -1
@@ -83,10 +86,10 @@ do --array & dictionary
    local function is_pdfe_triplet(obj)
       return getmetatable(obj) == metatable_pdfe_triplet
    end
-   
+
    --The situations for array and dictionary are very similar, so we define
    --parametrized metamethods.
-   
+
    local mt_index = function(tbl, key, pdfe_doc, legal_index_f)
       assert(legal_index_f(key))
       local value = tbl[key]
@@ -96,14 +99,14 @@ do --array & dictionary
       end
       return value
    end
-   
+
    local mt_newindex = function(obj, tbl, key, value, pdfe_doc, legal_index_f)
       assert(legal_index_f(key))
       tbl[key] = value
       updated_objects[pdfe_doc] = updated_objects[pdfe_doc] or {}
       updated_objects[pdfe_doc][obj] = true
    end
-   
+
    local mt_pairs = function(tbl, pdfe_doc, pairs_f)
       for key, value in pairs_f(tbl) do
 	 if is_pdfe_triplet(value) then
@@ -144,7 +147,7 @@ do --array & dictionary
 	 }
       end
       local tbl = pdfe.arraytotable(pdfe_obj)
-      for _k, pdfe_triplet in ipairs(tbl) do
+      for _, pdfe_triplet in ipairs(tbl) do
 	 setmetatable(pdfe_triplet, metatable_pdfe_triplet)
       end
       return setmetatable({}, mtf(tbl))
@@ -169,7 +172,7 @@ do --array & dictionary
 	 }
       end
       local tbl = pdfe.dictionarytotable(pdfe_obj)
-      for _k, pdfe_triplet in pairs(tbl) do
+      for _, pdfe_triplet in pairs(tbl) do
 	 setmetatable(pdfe_triplet, metatable_pdfe_triplet)
       end
       return setmetatable({}, mtf(tbl))
@@ -178,12 +181,12 @@ do --array & dictionary
 end --array & dictionary
 
 do --stream
-   
+
    local metatable_stream = {
       pdfw_type = 'stream',
       __index = index_error, __newindex = index_error,
    }
-   
+
    function pdfw.from_pdfe_stream(pdfe_doc, stream, dictionary)
       return setmetatable(
 	 { pdfe_doc = pdfe_doc, stream = stream, dictionary = dictionary },
@@ -199,7 +202,7 @@ do --stream
 	 metatable_stream
       )
    end
-   
+
 end
 
 --Set and used when resolving references.
@@ -222,9 +225,9 @@ do --reference
       error("Cannot index a reference! \z
              Did you forget to call the reference to resolve it?", 2)
    end
-   
+
    do
-      
+
       local function mt_call(_obj, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id)
 	 referenced_objects[pdfe_doc] = referenced_objects[pdfe_doc] or {}
 	 local referenced_objects_for_doc = referenced_objects[pdfe_doc]
@@ -246,7 +249,7 @@ do --reference
 		     obj, pdfe_doc, pdfe_reference, referenced_pdfe_obj_id) end,
 	 })
       end
-      
+
    end
 
    function pdfw.reference(referenced_pdfw_obj)
@@ -361,7 +364,7 @@ end
 do --linearize
 
    local linearize, distributor
-   
+
    linearize = function(doc, obj, indirect)
       if indirect then
 	 if not doc.object_ids[obj] then
@@ -465,7 +468,7 @@ do --linearize
 	 return pdfw.linearize(doc, obj.value)
       end,
    }
-   
+
 end --linearize
 
 --\section{Creating, opening, saving and updating PDF files}
@@ -524,18 +527,18 @@ end
 --Save the document from scratch.
 
 function pdfw_doc.save(doc, filename)
-   
+
    doc.object_ids = {}
    doc.max_id = 0
    doc.xref = {}
    doc.fh = io.open(filename, 'wb')
-   
+
    doc.fh:write(string.format("%%PDF-%d.%d\n", doc.major, doc.minor))
-   
+
    local magic_bin = 'LuaPDFrw'
    magic_bin = {magic_bin:byte(1,-1)}
    doc.fh:write("%")
-   for _i,v in ipairs(magic_bin) do
+   for _,v in ipairs(magic_bin) do
       doc.fh:write(string.char(v+128))
    end
    doc.fh:write("\n")
@@ -545,24 +548,24 @@ function pdfw_doc.save(doc, filename)
    --because |Info| is only referred to by the trailer, so it would get written
    --out (alongside the trailer) behind |xref|.
    pdfw.linearize(doc, doc.trailer)
-   
+
    local startxref = doc.fh:seek()
    doc.fh:write(
       'xref\n',
       '0 ', #doc.xref + 1, "\n",
       '0000000000 65535 f \n'
    )
-   for _id,pos in ipairs(doc.xref) do
+   for _,pos in ipairs(doc.xref) do -- _id,pos
       doc.fh:write(string.format("%010d", pos), ' 00000 n \n')
    end
-   
+
    doc.trailer.Size = #doc.xref + 1
    doc.fh:write("trailer\n", pdfw.linearize(doc, doc.trailer), "\n")
-   
+
    doc.fh:write("startxref\n", startxref, "\n")
    doc.fh:write("%%EOF\n")
    doc.fh:close()
-   
+
    doc.object_ids, doc.max_id, doc.xref, doc.fh, doc.trailer.Size = nil, nil, nil, nil, nil
 end
 
@@ -571,9 +574,9 @@ end
 function pdfw_doc.update(doc, prune)
 
    assert(doc.filename)
-   
+
    --todo: prune, i.e. mark all unused objects as deleted
-   
+
    --Get the location of the previous xref table.
    local fh = io.open(doc.filename, 'rb')
    fh:seek("end", -40)
@@ -581,14 +584,14 @@ function pdfw_doc.update(doc, prune)
    fh:close()
    local _
    _,_,prev = prev:find('startxref%s+(%d+)%s+%%%%EOF')
-   
+
    doc.updating = true --a parameter for linearize
    doc.object_ids = {}
    doc.max_id = doc.trailer.Size
    doc.xref = {}
    doc.fh = io.open(doc.filename, 'a+b')
    doc.fh:seek("end")
-   
+
    pdfw.linearize(doc, doc.trailer)
    for obj,_ in pairs(updated_objects[doc.pdfe_doc]) do
       if get_original_object_id(obj) then
@@ -599,7 +602,7 @@ function pdfw_doc.update(doc, prune)
    local startxref = doc.fh:seek()
    doc.fh:write('xref\n',
 		'0 1\n0000000000 65535 f \n')
-   
+
    local function write_xref_section(start_id)
       while not doc.xref[start_id] and start_id <= doc.max_id do
 	 start_id = start_id + 1
@@ -608,7 +611,7 @@ function pdfw_doc.update(doc, prune)
 
       local next_id = start_id + 1
       while doc.xref[next_id] do next_id = next_id + 1 end
-      
+
       doc.fh:write(start_id, ' ', next_id - start_id, "\n")
       for id = start_id, next_id - 1  do
 	 doc.fh:write(string.format("%010d", doc.xref[id]), ' 00000 n \n')
@@ -616,15 +619,15 @@ function pdfw_doc.update(doc, prune)
 
       return next_id
    end
-   
+
    local id = 1
    while id <= doc.max_id do id = write_xref_section(id) end
    assert(id == doc.max_id + 1)
-   
+
    doc.trailer.Size = id
    doc.trailer.Prev = tonumber(prev)
    doc.fh:write("trailer\n", pdfw.linearize(doc, doc.trailer, false, true), "\n")
-   
+
    doc.fh:write("startxref\n", startxref, "\n")
 
    doc.fh:write("%%EOF\n")
@@ -643,7 +646,7 @@ do
       if p.Type == '/Page' then
 	 table.insert(result, p)
       else
-	 for _i,kid in ipairs(p.Kids) do
+	 for _,kid in ipairs(p.Kids) do
 	    get_pages_from_Pages(kid(), result)
 	 end
       end
@@ -674,7 +677,7 @@ do
 	 end
       end
    end
-   
+
    function pdfw_doc.get_page(doc, page_n)
       local root_Pages = doc.trailer.Root().Pages()
       assert(math.type(page_n) == 'integer'
@@ -709,10 +712,10 @@ do
       local Kids = Pages.Kids
       local n_kids = #Kids
       if n_kids <= max_kids then return end
-      
+
       local right_Pages = pdfw.copy(Pages)
       right_Pages.Kids = {}
-      
+
       local half = n_kids // 2
       right_Pages.Count = n_kids - half
       Pages.Count = half
@@ -761,7 +764,7 @@ do
       else
 	 --Insert to the right (offset=1) or to the left (offset=0)?
 	 local offset = (page_n == root_Pages.Count + 1) and 1 or 0
-	 local _kid, parent, path = doc:get_page(page_n - offset)
+	 local _, parent, path = doc:get_page(page_n - offset) -- _kid,parent,path
 	 local i = table.remove(path)
 	 table.insert(parent.Kids, i + offset, pdfw.reference(page))
 	 local p = parent
@@ -805,12 +808,12 @@ do
 
    function pdfw_doc.remove_page(doc, page)
       assert(page.Type == '/Page')
-      
+
       --Check that the |page| object indeed belongs to the document.
       local root_Pages = page.Parent()
       while root_Pages.Parent do root_Pages = root_Pages.Parent() end
       assert(root_Pages == doc.trailer.Root().Pages())
-      
+
       --Remove the page from its parent Pages object.  If the modified Pages
       --are empty, remove them from their parent Pages, and so on until the
       --root Pages object.
