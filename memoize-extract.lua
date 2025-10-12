@@ -314,6 +314,7 @@ end
 
 -- restricted function defined here
 local mkdir
+local mkdir_rec
 do
 	-- safe the functions/libraries needed in this restricted area
 	local lfs = lfs
@@ -338,6 +339,21 @@ do
 		else
 			return nil, ("mkdir '%s' not permitted"):format(name)
 		end
+	end
+	---safely make new directory (recursive)
+	---Note: this is a nop if the directory already exists
+	---@param name string
+	---@return boolean? success
+	---@return string? error message
+	mkdir_rec = function(name)
+		local succ, err
+		for c in pathlib.iter_path(name) do
+			succ, err = mkdir(c)
+			if not succ then
+				return nil, err
+			end
+		end
+		return true
 	end
 end
 
@@ -1202,7 +1218,10 @@ local function main(args)
 
 	-- --mkdir -> just create a directory named |mmz|
 	if args.mkdir then
-		mkdir(args.mmz)
+		local succ, err = mkdir_rec(args.mmz)
+		if not succ then
+			log_error(err)
+		end
 		exit.succ()
 	end
 
