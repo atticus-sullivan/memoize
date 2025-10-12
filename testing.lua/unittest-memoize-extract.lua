@@ -751,6 +751,38 @@ describe("memoize-extract.lua", function()
 				expect.equal(err, "Path contains invalid characters: ass\000ets")
 			end)
 		end)
+
+		describe("iter_path", function()
+			it("absolute unix", function()
+				local should = {"/one", "/one/deep", "/one/deep/dir"}
+				for c in extract.pathlib.iter_path("/one/deep/dir") do
+					expect.equal(c, should[1])
+					table.remove(should, 1)
+				end
+			end)
+			it("relative unix", function()
+				local should = {"one", "one/shallow", "one/shallow/dir"}
+				for c in extract.pathlib.iter_path("one/shallow/dir") do
+					expect.equal(c, should[1])
+					table.remove(should, 1)
+				end
+			end)
+			-- TODO general issue with unittests with windows (mixed OS)
+			-- it("absolute windows", function()
+			-- 	local should = {"C:/one", "C:/one/deep", "C:/one/deep/dir"}
+			-- 	for c in extract.pathlib.iter_path("C:\\one\\deep\\dir") do
+			-- 		expect.equal(c, should[1])
+			-- 		table.remove(should, 1)
+			-- 	end
+			-- end)
+			-- it("relative windows", function()
+			-- 	local should = {"one", "one/shallow", "one/shallow/dir"}
+			-- 	for c in extract.pathlib.iter_path("one\\shallow\\dir") do
+			-- 		expect.equal(c, should[1])
+			-- 		table.remove(should, 1)
+			-- 	end
+			-- end)
+		end)
 	end)
 
 	-- in case we need tests working on the filesystem.

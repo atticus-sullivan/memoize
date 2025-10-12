@@ -279,6 +279,32 @@ do
 			return path.."/"..r
 		end
 	end
+
+	function pathlib.iter_path(path)
+		path = pathlib.path_normalize(path)
+		local root = pathlib.path_is_absolute(path) and "/" or ""
+		local drive = ""
+		if os.type == "windows" then
+			drive = path:match("^%a:")
+			if drive then
+				path = path:sub(3)
+			end
+		end
+		drive = drive or ""
+		local components = {}
+		for component in path:gmatch("([^/]+)") do
+			table.insert(components, component)
+		end
+		local idx = 0
+		return function()
+			idx = idx + 1
+			if components[idx] then
+				return drive .. root .. table.concat({table.unpack(components, 1, idx)}, "/")
+			else
+				return nil
+			end
+		end
+	end
 end
 
 -----------------------------------------
