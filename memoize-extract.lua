@@ -1160,6 +1160,9 @@ local function parse_mmz(mmz_lines, force, keep)
 
 		::continue::
 		if not keep then
+			-- elements of the array are kinda pointers. The lines will get
+			-- commented out (in postprocess_pages) based on the line_tab stored
+			-- in pages
 			table.insert(new_mmz, line_tab)
 		end
 	end
