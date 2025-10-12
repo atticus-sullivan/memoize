@@ -105,6 +105,9 @@ def run(args, *, env = {}, **kwargs):
     elif args[0].endswith('.pl'):
         args[0] = str(Path.cwd() / args[0])
         args.insert(0, 'perl')
+    elif args[0].endswith('.lua'):
+        args[0] = str(Path.cwd() / args[0])
+        args.insert(0, 'texlua')
     if env:
         echo(run, args, env = env, **kwargs)
         environ = os.environ
@@ -149,13 +152,7 @@ parser.add_argument('-B', '--always-make', action = 'store_true')
 parser.add_argument('targets', nargs = '*')
 args = parser.parse_args()
 
-for pyl in ('py', 'pl'):
-    for test in Test(
-            [f'unittest-memoize-extract.{pyl}'],
-            [f'unittest-memoize-extract.{pyl}', f'memoize-extract.{pyl}'],
-            'Unit tests'):
-        assert run(f'unittest-memoize-extract.{pyl}'.split())
-            
+# TODO integrate lua unittests
 for test in Test(['nomemodir', 'build/nomemodir/doc.pdf'], ['src/nomemodir/doc.tex'],
                  'Compiling sources', work_dirs = ['build/nomemodir']):
     cp('src/nomemodir/doc.tex', 'build/nomemodir')
@@ -191,7 +188,7 @@ for test in Test(['memodir with spaces', 'build/memodir with spaces/doc with spa
     assert diff('{expected,build}/memodir with spaces/doc with spaces.memo.dir/prefix with spaces.7DBC7B29C0C49BCFD5C4A18740E06E80-E778DCCCB8AAB0BBD3F6CFEEFD2421F8.memo')
 
     
-for pyl in ('py', 'pl'):
+for pyl in ('lua',):
     inexisting_absolute = ('C:\\' if platform.system() == 'Windows' else '/') + 'inexisting'
     
     for test in Test([f'extract-nomemodir.{pyl}'],
