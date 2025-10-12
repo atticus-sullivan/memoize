@@ -667,15 +667,15 @@ do
 		if abs then return fname end
 
 		if texmf_output_directory then
-			local p, err = pathutil.join(texmf_output_directory, fname)
+			local p, err = pathlib.join(texmf_output_directory, fname)
 			if not p then return nil, err end
 			if kpse.in_name_ok_silent_extended(p) then return p end
 		end
 		if not texmf_output_directory then
-			if kpse.in_name_ok_silent_extended(fname) then return fname end
+			if kpse.in_name_ok_silent_extended(fname) and lfs.isfile(fname) then return fname end
 		end
 		if texmfoutput then
-			local p, err = pathutil.join(texmfoutput, fname)
+			local p, err = pathlib.join(texmfoutput, fname)
 			if not p then return nil, err end
 			if kpse.in_name_ok_silent_extended(p) then return p end
 		end
@@ -699,7 +699,7 @@ do
 
 		local texmf_od
 		if texmf_output_directory then
-			local p, err = pathutil.join(texmf_output_directory, fname)
+			local p, err = pathlib.join(texmf_output_directory, fname)
 			if not p then return nil, err end
 			texmf_od = p
 			if kpse.out_name_ok_silent_extended(p) then return p end
@@ -708,7 +708,7 @@ do
 			if kpse.out_name_ok_silent_extended(fname) then return fname end
 		end
 		if texmfoutput then
-			local p, err = pathutil.join(texmfoutput, fname)
+			local p, err = pathlib.join(texmfoutput, fname)
 			if not p then return nil, err end
 			if kpse.out_name_ok_silent_extended(p) then return p end
 		end
