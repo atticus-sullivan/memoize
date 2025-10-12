@@ -1228,9 +1228,19 @@ local function main(args)
 		exit.succ()
 	end
 
-	args.mmz = normalize_mmz(args.mmz)
+	local err, mmz
+	args.mmz, err = normalize_mmz(args.mmz)
+	if not args.mmz then
+		log_error(err)
+	end
+	assert(args.mmz) -- only for the linter
+	mmz, err = find_in(args.mmz)
+	if not args.mmz then
+		log_error(err)
+	end
+	assert(mmz) -- only for the linter
 	log_assert(args.mmz:match("^.*%.mmz$"), "malformed mmz parameter provided")
-	log_assert(lfs.isfile(args.mmz), ".mmz file was not found")
+	log_assert(lfs.isfile(mmz), ".mmz file was not found")
 
 	-- setup logging to file
 	if args.format then
@@ -1241,13 +1251,12 @@ local function main(args)
 	end
 
 	-- infer the path to the pdf file
-	args.pdf = find_in(args.pdf or pathlib.with_suffix(args.mmz, "pdf"))
+	args.pdf = find_in(args.pdf or pathlib.with_suffix(mmz, "pdf"))
 
 	log_assert(args.pdf:match("^.*%.pdf$"), "malformed pdf parameter provided / inferred")
 	log_assert(lfs.isfile(args.pdf), ".pdf file was not found")
 
 	-- collect data from file
-	local mmz = find_in(args.mmz, true)
 	local pages, new_mmz, gs_prefix, dirs_to_make = parse_mmz(io_lines(mmz), args.force, args.keep)
 	-- check if parsing has returned an error
 	log_assert(pages ~= nil, new_mmz)
